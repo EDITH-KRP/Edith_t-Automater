@@ -1,0 +1,39 @@
+2025-09-16 15:35:26,454 - INFO - [HashDeep-Drive] Drive-Level HashDeep processor initialized for case: REAL-DRIVE-F-1758017119
+2025-09-16 15:35:26,454 - INFO - [HashDeep-Drive] Starting drive-level hash calculation for: F:\
+2025-09-16 15:35:26,455 - INFO - [HashDeep-Drive] Processing evidence directory: F:\
+2025-09-16 15:35:26,542 - INFO - [HashDeep-Drive] Drive-level hash calculation completed:
+2025-09-16 15:35:26,543 - INFO - [HashDeep-Drive]   Target: F:\
+2025-09-16 15:35:26,543 - INFO - [HashDeep-Drive]   Type: directory
+2025-09-16 15:35:26,543 - INFO - [HashDeep-Drive]   Files: 3
+2025-09-16 15:35:26,543 - INFO - [HashDeep-Drive]   Size: 6,714 bytes
+2025-09-16 15:35:26,543 - INFO - [HashDeep-Drive]   Time: 0.09 seconds
+2025-09-16 15:35:26,544 - INFO - [HashDeep-Drive]   MD5: a8e869e8c20af9b1ff415d5d8dd75079
+2025-09-16 15:35:26,544 - INFO - [HashDeep-Drive]   SHA1: 6c025bc17e67b3fd86fb1e9ca55678ab67ec44ae
+2025-09-16 15:35:26,544 - INFO - [HashDeep-Drive]   SHA256: a2a772872149370d899daa1226e9086f48339674bc9a610801c7a1439858e8b2
+2025-09-16 15:35:26,568 - INFO - [HashDeep-Drive] Drive-level forensic report generated: G:\HashDeep_Reports\REAL-DRIVE-F-1758017119\DriveHash_Report_REAL-DRIVE-F-1758017119.txt
+2025-09-16 15:35:40,614 - INFO - [HashDeep-Drive] Drive-Level HashDeep processor initialized for case: QUICK-F-TEST-1758017140
+2025-09-16 15:35:40,615 - INFO - [HashDeep-Drive] Starting drive-level hash calculation for: F:\System Volume Information
+2025-09-16 15:35:40,615 - INFO - [HashDeep-Drive] Processing evidence directory: F:\System Volume Information
+2025-09-16 15:35:40,616 - INFO - [HashDeep-Drive] Drive-level hash calculation completed:
+2025-09-16 15:35:40,616 - INFO - [HashDeep-Drive]   Target: F:\System Volume Information
+2025-09-16 15:35:40,616 - INFO - [HashDeep-Drive]   Type: directory
+2025-09-16 15:35:40,616 - INFO - [HashDeep-Drive]   Files: 2
+2025-09-16 15:35:40,616 - INFO - [HashDeep-Drive]   Size: 88 bytes
+2025-09-16 15:35:40,616 - INFO - [HashDeep-Drive]   Time: 0.00 seconds
+2025-09-16 15:35:40,617 - INFO - [HashDeep-Drive]   MD5: 3c3d5e7965584812086b1c22e7026918
+2025-09-16 15:35:40,617 - INFO - [HashDeep-Drive]   SHA1: 9a1f1373007daaaa7d8c481f5564790fd091bab5
+2025-09-16 15:35:40,617 - INFO - [HashDeep-Drive]   SHA256: dcc6e0b3e16d315fa89a3ddb69cb3eab35e9277b941fd85c28ded995e47bdf36
+2025-09-16 15:35:40,633 - INFO - [HashDeep-Drive] Drive-level forensic report generated: G:\HashDeep_Reports\QUICK-F-TEST-1758017140\DriveHash_Report_QUICK-F-TEST-1758017140.txt
+2025-09-16 15:38:42,398 - INFO - [HashDeep-Drive] Drive-Level HashDeep processor initialized for case: REAL-DRIVE-F-1758017319
+2025-09-16 15:38:42,398 - INFO - [HashDeep-Drive] Starting drive-level hash calculation for: F:\
+2025-09-16 15:38:42,399 - INFO - [HashDeep-Drive] Processing evidence directory: F:\
+2025-09-16 15:38:42,399 - INFO - [HashDeep-Drive] Drive-level hash calculation completed:
+2025-09-16 15:38:42,400 - INFO - [HashDeep-Drive]   Target: F:\
+2025-09-16 15:38:42,400 - INFO - [HashDeep-Drive]   Type: directory
+2025-09-16 15:38:42,400 - INFO - [HashDeep-Drive]   Files: 3
+2025-09-16 15:38:42,400 - INFO - [HashDeep-Drive]   Size: 6,714 bytes
+2025-09-16 15:38:42,400 - INFO - [HashDeep-Drive]   Time: 0.00 seconds
+2025-09-16 15:38:42,400 - INFO - [HashDeep-Drive]   MD5: a8e869e8c20af9b1ff415d5d8dd75079
+2025-09-16 15:38:42,400 - INFO - [HashDeep-Drive]   SHA1: 6c025bc17e67b3fd86fb1e9ca55678ab67ec44ae
+2025-09-16 15:38:42,400 - INFO - [HashDeep-Drive]   SHA256: a2a772872149370d899daa1226e9086f48339674bc9a610801c7a1439858e8b2
+2025-09-16 15:38:42,410 - INFO - [HashDeep-Drive] Drive-level forensic report generated: G:\HashDeep_Reports\REAL-DRIVE-F-1758017319\DriveHash_Report_REAL-DRIVE-F-1758017319.txt
