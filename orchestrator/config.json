@@ -1,0 +1,92 @@
+{
+  "version": "1.0",
+  "project_name": "EDITH-Automater",
+  "description": "Digital Forensics Automation Tool Configuration",
+  
+  "tools": {
+    "ftkimager": {
+      "path": "../tools/ftkimager/ftkimager.exe",
+      "enabled": true,
+      "timeout": 3600,
+      "options": {
+        "verify_image": true,
+        "compression": "none",
+        "block_size": 512
+      }
+    },
+    "autopsy": {
+      "path": "../tools/autopsy/",
+      "enabled": true,
+      "timeout": 7200,
+      "options": {
+        "create_timeline": true,
+        "keyword_search": true,
+        "hash_lookup": true
+      }
+    },
+    "volatility3": {
+      "path": "../tools/volatility3/",
+      "enabled": true,
+      "timeout": 1800,
+      "options": {
+        "profile_auto_detect": true,
+        "plugins": ["pslist", "netscan", "filescan", "malfind"]
+      }
+    },
+    "bulk_extractor": {
+      "path": "../tools/bulk_extractor/bulk_extractor.exe",
+      "enabled": true,
+      "timeout": 1800,
+      "options": {
+        "threads": 4,
+        "extract_features": ["email", "url", "ccn", "telephone"]
+      }
+    },
+    "exiftool": {
+      "path": "../tools/exiftool/exiftool.exe",
+      "enabled": true,
+      "timeout": 300,
+      "options": {
+        "recursive": true,
+        "extract_all": true
+      }
+    },
+    "hashdeep": {
+      "path": "../tools/hashdeep/hashdeep.exe",
+      "enabled": true,
+      "timeout": 600,
+      "options": {
+        "algorithms": ["md5", "sha1", "sha256"],
+        "recursive": true
+      }
+    }
+  },
+  
+  "paths": {
+    "evidence_dir": "../evidence/",
+    "reports_dir": "../reports/",
+    "logs_dir": "../logs/",
+    "templates_dir": "./templates/",
+    "temp_dir": "../temp/"
+  },
+  
+  "logging": {
+    "level": "INFO",
+    "file_rotation": true,
+    "max_log_size": "10MB",
+    "backup_count": 5
+  },
+  
+  "reporting": {
+    "formats": ["html", "pdf", "json"],
+    "include_screenshots": true,
+    "template": "forensic_report_template.html"
+  },
+  
+  "automation": {
+    "auto_start": false,
+    "parallel_processing": true,
+    "max_concurrent_tools": 3,
+    "verify_hashes": true
+  }
+}

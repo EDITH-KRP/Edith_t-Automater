@@ -1,0 +1,48 @@
+# Project File Hierarchy (EDITH-Automater)
+
+Below is the folder and file structure for this project. Each line explains what the folder or file is for, in simple words.
+
+/
+├─ BOOT/                # Boot files for starting Windows PE or Linux ISO
+├─ tools/               # All third-party tool programs (organized in separate folders)
+│   ├─ ftkimager/           # FTKImager for forensic disk imaging
+│   │   ├─ README.md            # Tool documentation and setup instructions
+│   │   └─ ftkimager.exe        # (Place FTKImager executable here)
+│   ├─ autopsy/             # Autopsy digital forensics platform
+│   │   ├─ README.md            # Tool documentation and setup instructions
+│   │   └─ (Autopsy files)      # (Place Autopsy installation here)
+│   ├─ volatility3/         # Volatility3 memory analysis framework
+│   │   ├─ README.md            # Tool documentation and setup instructions
+│   │   └─ (Volatility files)   # (Place Volatility3 files here)
+│   ├─ bulk_extractor/      # Bulk Extractor for data extraction
+│   │   ├─ README.md            # Tool documentation and setup instructions
+│   │   └─ bulk_extractor.exe   # (Place Bulk Extractor executable here)
+│   ├─ exiftool/            # ExifTool for metadata extraction
+│   │   ├─ README.md            # Tool documentation and setup instructions
+│   │   └─ exiftool.exe         # (Place ExifTool executable here)
+│   └─ hashdeep/            # HashDeep for file integrity verification
+│       ├─ README.md            # Tool documentation and setup instructions
+│       └─ hashdeep.exe         # (Place HashDeep executable here)
+├─ orchestrator/         # Main automation scripts and settings
+│   ├─ orchestrator.py       # Main Python script to run the pipeline
+│   ├─ launcher.ps1          # PowerShell script to launch the UI
+│   ├─ launcher.exe          # Optional GUI launcher (Windows app)
+│   ├─ config.json           # Configuration file with tool paths and settings
+│   ├─ templates/            # Templates for reports (HTML/Word docs)
+│   │   └─ forensic_report_template.html # HTML report template
+│   └─ lib/                  # Helper scripts and libraries
+├─ case_templates/       # Blank templates for starting new cases
+│   └─ NEW_CASE_PROMPT.json  # JSON template for a new case
+├─ evidence/             # Where acquired images are stored
+│   └─ README.txt            # Explains evidence storage and security procedures
+├─ reports/              # Where reports for each case are saved
+│   └─ CASE-XXXX/            # Folder for a specific case's reports
+├─ logs/                 # Log files for each case
+│   └─ CASE-XXXX/            # Folder for a specific case's logs
+├─ docs/                 # User guides and policies
+├─ utils/                # Extra tools (like rclone, hash checkers)
+├─ bin/                  # Small helper programs (like 7z, pandoc)
+└─ README.md             # Main project documentation and quick start guide
+
+This structure helps keep all tools, scripts, evidence, and reports organized for easy use and automation.
+Each tool now has its own dedicated folder with documentation for better organization and maintenance.

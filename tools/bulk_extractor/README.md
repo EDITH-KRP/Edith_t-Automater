@@ -1,0 +1,14 @@
+# Bulk Extractor Tool Folder
+
+Place the Bulk Extractor executable and related files in this folder.
+
+Bulk Extractor is used for:
+- Extracting structured data from disk images
+- Finding credit card numbers, email addresses, URLs
+- Carving files without file system information
+- Network packet analysis
+
+Expected files:
+- bulk_extractor.exe (main executable)
+- Supporting libraries
+- Configuration files

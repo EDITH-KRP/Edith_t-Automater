@@ -1,0 +1,43 @@
+{
+  "case_id": "CASE-XXXX",
+  "case_name": "New Digital Forensics Case",
+  "investigator": "Your Name",
+  "date_created": "YYYY-MM-DD",
+  "description": "Brief description of the case and investigation objectives",
+  
+  "evidence": {
+    "type": "disk_image",
+    "source": "path/to/evidence.dd",
+    "hash_md5": "",
+    "hash_sha1": "",
+    "hash_sha256": "",
+    "acquisition_date": "YYYY-MM-DD HH:MM:SS",
+    "acquisition_tool": "FTKImager"
+  },
+  
+  "analysis_objectives": [
+    "Recover deleted files",
+    "Identify user activity",
+    "Timeline analysis",
+    "Network activity analysis",
+    "Malware detection"
+  ],
+  
+  "tools_to_use": [
+    "autopsy",
+    "volatility3",
+    "bulk_extractor",
+    "exiftool",
+    "hashdeep"
+  ],
+  
+  "reporting": {
+    "format": ["html", "pdf"],
+    "include_timeline": true,
+    "include_file_listing": true,
+    "include_registry_analysis": true,
+    "include_network_analysis": true
+  },
+  
+  "notes": "Additional case-specific notes and requirements"
+}
