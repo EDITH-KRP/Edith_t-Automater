@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chain of Custody Form</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 0;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .page {
+            width: 210mm;
+            height: 297mm;
+            margin: 0 auto;
+            background-color: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            position: relative;
+            box-sizing: border-box;
+            border: 1px solid #000;
+            padding: 0;
+            overflow: hidden;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        td, th {
+            border: 1px solid black;
+            padding: 15px 8px;
+            vertical-align: top;
+            font-size: 11pt;
+            height: 35px;
+        }
+        th {
+            background-color: black;
+            color: white;
+            text-align: center;
+            font-weight: bold;
+            padding: 12px 6px;
+            font-size: 12pt;
+        }
+        tr {
+            height: 50px;
+        }
+        .case-label {
+            font-weight: normal;
+        }
+        .detail-header {
+            text-align: center;
+            font-weight: bold;
+        }
+        .highlight {
+            background-color: #caffca;
+        }
+        .signature-line {
+            position: relative;
+            display: inline-block;
+            width: 180px;
+            text-align: center;
+            border-bottom: 1px solid black;
+            margin: 25px auto;
+            padding-bottom: 5px;
+        }
+        .signature-line:before {
+            content: "(";
+            position: absolute;
+            left: -8px;
+            font-size: 14pt;
+        }
+        .signature-line:after {
+            content: ")";
+            position: absolute;
+            right: -8px;
+            font-size: 14pt;
+        }
+        .company-footer {
+            text-align: center;
+            margin-top: 70px;
+            position: absolute;
+            bottom: 40px;
+            left: 0;
+            right: 0;
+        }
+        .company-logo {
+            display: block;
+            margin: 0 auto;
+            max-width: 150px;
+            height: auto;
+        }
+        .company-name {
+            font-weight: bold;
+            font-size: 14pt;
+            margin-top: 8px;
+        }
+        .tagline {
+            font-size: 8pt;
+            color: #666;
+            margin-top: 3px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .big-z {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.07;
+            z-index: 0;
+            pointer-events: none;
+        }
+        @media print {
+            body {
+                background: none;
+            }
+            .page {
+                box-shadow: none;
+                border: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <!--<img class="big-z" src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAwIiBoZWlnaHQ9IjgwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICAgIDxwYXRoIGQ9Ik0xNTAgMTUwQzE1MCAxNTAgNjUwIDE1MCA2NTAgMTUwQzY1MCAxNTAgMjAwIDY1MCAyMDAgNjUwQzIwMCA2NTAgNjUwIDY1MCA2NTAgNjUwTTIwMCAyMDBDMjAwIDIwMCA2MDAgMjAwIDYwMCAyMDBDNjAwIDIwMCAyNTAgNjAwIDI1MCA2MDBDMjUwIDYwMCA2MDAgNjAwIDYwMCA2MDAiIHN0cm9rZT0iIzVkYzI1ZCIgc3Ryb2tlLXdpZHRoPSI1MCIgZmlsbD0ibm9uZSIvPgo8L3N2Zz4=" alt=""> -->
+        <table>
+            <tr>
+                <th colspan="4">Chain of Custody Form</th>
+            </tr>
+            <tr>
+                <td colspan="4" style="font-weight: bold;">Name of the Case:</td>
+            </tr>
+            <tr>
+                <td colspan="4" style="font-weight: bold;">Authorized Officer:</td>
+            </tr>
+            <tr>
+                <td style="width: 50%;">Start Date and Time of Search:</td>
+                <td style="width: 50%;" colspan="3">Premise Address:</td>
+            </tr>
+            <tr>
+                <td colspan="4" style="line-height: 1.5; height: 120px;">
+                    Description: During the search in the case of _________________ on <!-- real date for report --> the 
+                    following devices were forensically imaged and were stored in the below mentioned hard disk:
+                    <br><br>
+                    <span style="font-weight: bold;">1.</span><br>
+                    <span style="font-weight: bold;">2.</span>
+                </td>
+            </tr>
+            <tr>
+                <td style="width: 50%; text-align: center; font-weight: bold;" colspan="2">Master Copy Details</td>
+                <td style="width: 50%; text-align: center; font-weight: bold;" colspan="2">Working Copy Details</td>
+            </tr>
+            <tr style="height: 100px;">
+                <td colspan="2" style="font-weight: bold; line-height: 1.8;">
+                    Make:<br>
+                    Model:<br>
+                    Size:<br>
+                    Serial NO:
+                </td>
+                <td colspan="2" style="font-weight: bold; line-height: 1.8;">
+                    Make:<br>
+                    Model:<br>
+                    Size:<br>
+                    Serial NO:
+                </td>
+            </tr>
+            <tr>
+                <td colspan="4" style="text-align: center; font-weight: bold; height: 30px;">Chain of Custody</td>
+            </tr>
+            <tr style="height: 60px;">
+                <td style="width: 25%; text-align: center; vertical-align: middle; font-weight: bold;">Reason / Action</td>
+                <td style="width: 25%; text-align: center; vertical-align: middle;" class="highlight">Received Form<br>(Name & signature)</td>
+                <td style="width: 25%; text-align: center; vertical-align: middle;" class="highlight">Received by<br>(Name & signature)</td>
+                <td style="width: 25%; text-align: center; vertical-align: middle; font-weight: bold;">Date & Time</td>
+            </tr>
+            <tr style="height: 100px;">
+                <td style="text-align: center; vertical-align: middle; font-weight: bold;">Forensic<br>Imaging</td>
+                <td style="text-align: center; vertical-align: middle;">
+                    
+                </td>
+                <td style="text-align: center; vertical-align: middle;">
+                    
+                </td>
+                <td></td>
+            </tr>
+            <tr style="height: 100px;">
+                <td style="text-align: center; vertical-align: middle; font-weight: bold;">Return after<br>Forensic<br>Imaging</td>
+                <td style="text-align: center; vertical-align: middle;">
+                    
+                </td>
+                <td style="text-align: center; vertical-align: middle;">
+                    
+                </td>
+                <td></td>
+            </tr>
+        </table>
+        
+        <!--
+         <div class="company-footer">
+            <img class="company-logo" src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjgwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgogICAgPHRleHQgeD0iODAiIHk9IjUwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtd2VpZ2h0PSJib2xkIiBmb250LXNpemU9IjQwIiBmaWxsPSIjMzMzIj56ZXQ8L3RleHQ+CiAgICA8Y2lyY2xlIGN4PSIxNTAiIGN5PSI0MCIgcj0iMTUiIGZpbGw9IiM1ZGMyNWQiLz4KICAgIDx0ZXh0IHg9IjE2MCIgeT0iNTAiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZvbnQtc2l6ZT0iNDAiIGZpbGw9IiMzMzMiPmVhazwvdGV4dD4KPC9zdmc+CiAgICA=" alt="zetpeak">
+            <div class="tagline">powered by resilience</div>
+            <div class="company-name">Zetpeak Company</div>
+        </div>
+        -->
+    </div>
+</body>
+</html>
