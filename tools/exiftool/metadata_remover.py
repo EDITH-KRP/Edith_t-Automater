@@ -49,31 +49,39 @@ class MetadataRemover:
     
     def __init__(self, input_directory: str = "input_files", 
                  output_directory: str = "cleaned_files",
-                 reports_directory: str = "removal_reports"):
+                 reports_directory: str = "removal_reports",
+                 config: Dict[str, Any] = None,
+                 case_id: str = None):
         self.input_directory = Path(input_directory)
         self.output_directory = Path(output_directory)
         self.reports_directory = Path(reports_directory)
+        self.case_id = case_id or "METADATA_REMOVAL"
+        
+        # Load configuration
+        self.config = self._load_config(config)
+        
+        # Load configuration
+        self.config = self._load_config(config)
         
         # Create directories
         self.output_directory.mkdir(exist_ok=True)
         self.reports_directory.mkdir(exist_ok=True)
         
-        # Setup logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(self.reports_directory / 'metadata_removal.log'),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
+        # Setup logging with case-specific information
+        self._setup_logging()
         
-        # Supported file extensions
-        self.image_extensions = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.gif', '.webp'}
-        self.audio_extensions = {'.mp3', '.wav', '.flac', '.ogg', '.aac', '.m4a', '.wma'}
-        self.video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v'}
-        self.document_extensions = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'}
+        # Configure removal based on loaded config
+        self._configure_removal()
+        
+        # Supported file extensions (can be overridden by config)
+        self.image_extensions = self.config.get('image_extensions',
+            {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.gif', '.webp'})
+        self.audio_extensions = self.config.get('audio_extensions',
+            {'.mp3', '.wav', '.flac', '.ogg', '.aac', '.m4a', '.wma'})
+        self.video_extensions = self.config.get('video_extensions',
+            {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v'})
+        self.document_extensions = self.config.get('document_extensions',
+            {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'})
         
         # Removal statistics
         self.removal_stats = {
@@ -86,6 +94,106 @@ class MetadataRemover:
         
         # Detailed removal log
         self.removal_log = []
+    
+    def _load_config(self, config: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Load configuration from various sources"""
+        default_config = {
+            'removal_options': {
+                'backup_originals': True,
+                'verify_removal': True,
+                'preserve_quality': True,
+                'remove_gps': True,
+                'remove_timestamps': False,
+                'remove_camera_info': True
+            },
+            'output_options': {
+                'export_json': True,
+                'export_csv': True,
+                'timestamp_files': True,
+                'create_summary': True
+            },
+            'logging': {
+                'level': 'INFO',
+                'file_logging': True,
+                'detailed_logging': True
+            },
+            'performance': {
+                'batch_size': 50,
+                'use_multiprocessing': False,
+                'timeout_per_file': 60
+            }
+        }
+        
+        # Merge with provided config
+        if config:
+            for key, value in config.items():
+                if key in default_config and isinstance(value, dict):
+                    default_config[key].update(value)
+                else:
+                    default_config[key] = value
+        
+        # Try to load from local config file
+        config_file = Path(__file__).parent / "remover_config.json"
+        if config_file.exists():
+            try:
+                with open(config_file, 'r') as f:
+                    file_config = json.load(f)
+                    for key, value in file_config.items():
+                        if key in default_config and isinstance(value, dict):
+                            default_config[key].update(value)
+                        else:
+                            default_config[key] = value
+            except Exception as e:
+                print(f"Warning: Could not load remover config: {e}")
+        
+        return default_config
+    
+    def _setup_logging(self):
+        """Setup logging with case-specific configuration"""
+        log_level = getattr(logging, self.config['logging']['level'].upper(), logging.INFO)
+        
+        handlers = []
+        
+        # File logging
+        if self.config['logging']['file_logging']:
+            log_file = self.reports_directory / f'removal_{self.case_id}.log'
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setLevel(log_level)
+            handlers.append(file_handler)
+        
+        # Console logging
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(log_level)
+        handlers.append(console_handler)
+        
+        # Configure logging
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(levelname)s - [%(name)s] %(message)s',
+            handlers=handlers,
+            force=True
+        )
+        self.logger = logging.getLogger(f'MetadataRemover_{self.case_id}')
+    
+    def _configure_removal(self):
+        """Configure removal parameters based on config"""
+        self.removal_options = self.config.get('removal_options', {})
+        self.output_options = self.config.get('output_options', {})
+        self.performance_options = self.config.get('performance', {})
+        
+        # Set removal flags
+        self.backup_originals = self.removal_options.get('backup_originals', True)
+        self.verify_removal = self.removal_options.get('verify_removal', True)
+        self.preserve_quality = self.removal_options.get('preserve_quality', True)
+        self.remove_gps = self.removal_options.get('remove_gps', True)
+        self.remove_timestamps = self.removal_options.get('remove_timestamps', False)
+        self.remove_camera_info = self.removal_options.get('remove_camera_info', True)
+        
+        # Set output flags
+        self.export_json = self.output_options.get('export_json', True)
+        self.export_csv = self.output_options.get('export_csv', True)
+        self.timestamp_files = self.output_options.get('timestamp_files', True)
+        self.create_summary = self.output_options.get('create_summary', True)
     
     def get_file_basic_info(self, file_path: Path) -> Dict[str, Any]:
         """Extract basic file system information"""

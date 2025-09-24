@@ -52,27 +52,132 @@ import pandas as pd
 class MetadataExtractor:
     """Main class for extracting metadata from various file types"""
     
-    def __init__(self, input_directory: str = "input_files", output_directory: str = "output"):
+    def __init__(self, input_directory: str = "input_files", output_directory: str = "output", 
+                 config: Dict[str, Any] = None, case_id: str = None):
         self.input_directory = Path(input_directory)
         self.output_directory = Path(output_directory)
+        self.case_id = case_id or "METADATA_EXTRACT"
+        
+        # Load configuration
+        self.config = self._load_config(config)
+        
+        # Create output directory
         self.output_directory.mkdir(exist_ok=True)
         
-        # Setup logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(self.output_directory / 'extraction.log'),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
+        # Create output directory
+        self.output_directory.mkdir(exist_ok=True)
         
-        # Supported file extensions
-        self.image_extensions = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.gif', '.webp'}
-        self.audio_extensions = {'.mp3', '.wav', '.flac', '.ogg', '.aac', '.m4a', '.wma'}
-        self.video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v'}
-        self.document_extensions = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'}
+        # Setup logging with case-specific information
+        self._setup_logging()
+        
+        # Configure extraction based on loaded config
+        self._configure_extraction()
+        
+        # Supported file extensions (can be overridden by config)
+        self.image_extensions = self.config.get('image_extensions', 
+            {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.gif', '.webp'})
+        self.audio_extensions = self.config.get('audio_extensions',
+            {'.mp3', '.wav', '.flac', '.ogg', '.aac', '.m4a', '.wma'})
+        self.video_extensions = self.config.get('video_extensions',
+            {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v'})
+        self.document_extensions = self.config.get('document_extensions',
+            {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'})
+    
+    def _load_config(self, config: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Load configuration from various sources"""
+        default_config = {
+            'extraction_options': {
+                'include_thumbnails': False,
+                'extract_gps': True,
+                'extract_timestamps': True,
+                'include_technical_metadata': True
+            },
+            'output_options': {
+                'export_json': True,
+                'export_csv': True,
+                'timestamp_files': True,
+                'create_summary': True
+            },
+            'logging': {
+                'level': 'INFO',
+                'file_logging': True,
+                'detailed_logging': False
+            },
+            'performance': {
+                'batch_size': 100,
+                'use_multiprocessing': False,
+                'timeout_per_file': 30
+            }
+        }
+        
+        # Merge with provided config
+        if config:
+            for key, value in config.items():
+                if key in default_config and isinstance(value, dict):
+                    default_config[key].update(value)
+                else:
+                    default_config[key] = value
+        
+        # Try to load from local config file
+        config_file = Path(__file__).parent / "extractor_config.json"
+        if config_file.exists():
+            try:
+                with open(config_file, 'r') as f:
+                    file_config = json.load(f)
+                    for key, value in file_config.items():
+                        if key in default_config and isinstance(value, dict):
+                            default_config[key].update(value)
+                        else:
+                            default_config[key] = value
+            except Exception as e:
+                print(f"Warning: Could not load extractor config: {e}")
+        
+        return default_config
+    
+    def _setup_logging(self):
+        """Setup logging with case-specific configuration"""
+        log_level = getattr(logging, self.config['logging']['level'].upper(), logging.INFO)
+        
+        handlers = []
+        
+        # File logging
+        if self.config['logging']['file_logging']:
+            log_file = self.output_directory / f'extraction_{self.case_id}.log'
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setLevel(log_level)
+            handlers.append(file_handler)
+        
+        # Console logging (always enabled but can be controlled by level)
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(log_level)
+        handlers.append(console_handler)
+        
+        # Configure logging
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(levelname)s - [%(name)s] %(message)s',
+            handlers=handlers,
+            force=True
+        )
+        self.logger = logging.getLogger(f'MetadataExtractor_{self.case_id}')
+    
+    def _configure_extraction(self):
+        """Configure extraction parameters based on config"""
+        self.extraction_options = self.config.get('extraction_options', {})
+        self.output_options = self.config.get('output_options', {})
+        self.performance_options = self.config.get('performance', {})
+        
+        # Set extraction flags
+        self.include_thumbnails = self.extraction_options.get('include_thumbnails', False)
+        self.extract_gps = self.extraction_options.get('extract_gps', True)
+        self.extract_timestamps = self.extraction_options.get('extract_timestamps', True)
+        self.include_technical = self.extraction_options.get('include_technical_metadata', True)
+        
+        # Set output flags  
+        self.export_json = self.output_options.get('export_json', True)
+        self.export_csv = self.output_options.get('export_csv', True)
+        self.timestamp_files = self.output_options.get('timestamp_files', True)
+        self.create_summary = self.output_options.get('create_summary', True)
         
     def get_file_basic_info(self, file_path: Path) -> Dict[str, Any]:
         """Extract basic file system information"""
@@ -355,9 +460,15 @@ FILE TYPE DISTRIBUTION:
         
         return summary
     
-    def run_extraction(self, export_json: bool = True, export_csv: bool = True) -> Dict[str, str]:
+    def run_extraction(self, export_json: bool = None, export_csv: bool = None) -> Dict[str, str]:
         """Run the complete metadata extraction process"""
         self.logger.info("Starting metadata extraction process...")
+        
+        # Use config defaults if not specified
+        if export_json is None:
+            export_json = self.export_json
+        if export_csv is None:
+            export_csv = self.export_csv
         
         # Process all files
         metadata_list = self.process_directory()
@@ -366,19 +477,23 @@ FILE TYPE DISTRIBUTION:
         summary = self.generate_summary_report(metadata_list)
         self.logger.info(summary)
         
-        # Save summary to file
-        summary_path = self.output_directory / "extraction_summary.txt"
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            f.write(summary)
+        # Save summary to file if configured
+        if self.create_summary:
+            summary_filename = f"extraction_summary_{self.case_id}.txt" if self.timestamp_files else "extraction_summary.txt"
+            summary_path = self.output_directory / summary_filename
+            with open(summary_path, 'w', encoding='utf-8') as f:
+                f.write(summary)
         
-        results = {'summary': str(summary_path)}
+        results = {'summary': str(summary_path) if self.create_summary else ''}
         
         # Export to requested formats
         if export_json and metadata_list:
-            results['json'] = self.export_to_json(metadata_list)
+            json_filename = f"metadata_export_{self.case_id}.json" if self.timestamp_files else "metadata_export.json"
+            results['json'] = self.export_to_json(metadata_list, json_filename)
         
         if export_csv and metadata_list:
-            results['csv'] = self.export_to_csv(metadata_list)
+            csv_filename = f"metadata_export_{self.case_id}.csv" if self.timestamp_files else "metadata_export.csv"
+            results['csv'] = self.export_to_csv(metadata_list, csv_filename)
         
         self.logger.info("Metadata extraction process completed!")
         return results
