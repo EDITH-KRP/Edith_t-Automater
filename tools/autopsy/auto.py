@@ -33,13 +33,11 @@ def get_partition_offset(image_path):
     return offset, output
 
 def main():
-    case_name = input("Enter Case Name: ").strip()
-    examiner = input("Enter Examiner Name: ").strip()
     image_path = input("Enter path to evidence image (.E01/.dd): ").strip()
-    description = input("Enter Case Description: ").strip()
+
 
     # Setup folder
-    case_folder = os.path.join("Evidence", case_name)
+    case_folder = os.path.join("Evidence")
     os.makedirs(case_folder, exist_ok=True)
 
     # Hash evidence
@@ -78,9 +76,6 @@ def main():
 
     # Save metadata JSON
     metadata = {
-        "case_name": case_name,
-        "examiner": examiner,
-        "description": description,
         "image_path": image_path,
         "hashes": hashes,
         "partition_offset": offset,
