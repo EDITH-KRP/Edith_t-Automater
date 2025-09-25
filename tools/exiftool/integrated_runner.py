@@ -31,7 +31,6 @@ import tempfile
 # Import local modules
 try:
     from metadata_extractor import MetadataExtractor
-    from metadata_remover import MetadataRemover
     METADATA_MODULES_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Local metadata modules not available: {e}")
@@ -51,10 +50,14 @@ class ExifToolIntegratedRunner:
             config_path (str): Optional path to configuration file
         """
         self.case_id = case_id or f"EXIF_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Setup paths first
+        self.tool_dir = Path(__file__).parent
+        
+        # Load config (which may reference tool_dir)
         self.config = self._load_config(config_path)
         
-        # Setup paths
-        self.tool_dir = Path(__file__).parent
+        # Setup working directories
         self.setup_working_directories()
         
         # Setup logging
@@ -100,11 +103,6 @@ class ExifToolIntegratedRunner:
                 "export_csv": True,
                 "include_thumbnails": False,
                 "preserve_original": True
-            },
-            "removal": {
-                "backup_originals": True,
-                "verify_removal": True,
-                "generate_reports": True
             },
             "logging": {
                 "level": "INFO",
@@ -184,11 +182,10 @@ class ExifToolIntegratedRunner:
         
         # Create necessary directories
         self.extraction_dir = self.case_output_dir / "extraction"
-        self.removal_dir = self.case_output_dir / "removal"
         self.logs_dir = self.case_output_dir / "logs"
         self.temp_dir = self.case_output_dir / "temp"
         
-        for directory in [self.extraction_dir, self.removal_dir, self.logs_dir, self.temp_dir]:
+        for directory in [self.extraction_dir, self.logs_dir, self.temp_dir]:
             directory.mkdir(parents=True, exist_ok=True)
     
     def setup_logging(self):
@@ -243,14 +240,14 @@ class ExifToolIntegratedRunner:
     
     def extract_metadata(self, input_path: str, **kwargs) -> Dict[str, Any]:
         """
-        Extract metadata from files
+        Extract metadata from files with enhanced integration support
         
         Args:
             input_path (str): Path to file or directory to analyze
             **kwargs: Additional options to override config
             
         Returns:
-            dict: Extraction results
+            dict: Extraction results with standardized format for tool integration
         """
         start_time = datetime.now()
         self.logger.info(f"Starting metadata extraction for: {input_path}")
@@ -268,7 +265,8 @@ class ExifToolIntegratedRunner:
             extraction_input.mkdir(exist_ok=True)
             extraction_output.mkdir(exist_ok=True)
             
-            # Copy/link input to workspace
+            # Copy/link input to workspace and track files
+            input_files = []
             if input_path.is_file():
                 import shutil
                 shutil.copy2(input_path, extraction_input / input_path.name)
@@ -291,11 +289,18 @@ class ExifToolIntegratedRunner:
             else:
                 raise RuntimeError("No extraction method available (no ExifTool executable or Python modules)")
             
-            # Calculate execution time
+            # Calculate execution time and statistics
             execution_time = (datetime.now() - start_time).total_seconds()
             
-            # Prepare standardized result
+            # Collect file statistics for integration
+            file_stats = self._collect_file_statistics(input_files)
+            
+            # Generate hash values for chain of custody (integration with hashdeep)
+            input_hashes = self._generate_file_hashes(str(input_path))
+            
+            # Prepare standardized result with enhanced integration data
             standardized_result = {
+                "tool_name": "exiftool",
                 "operation": "metadata_extraction",
                 "case_id": self.case_id,
                 "status": "SUCCESS" if result.get("success", False) else "FAILED",
@@ -305,6 +310,16 @@ class ExifToolIntegratedRunner:
                 "files_processed": len(input_files),
                 "extraction_method": "native_exiftool" if use_native else "python_modules",
                 "timestamp": start_time.isoformat(),
+                "end_time": datetime.now().isoformat(),
+                "file_statistics": file_stats,
+                "integrity_hashes": input_hashes,
+                "output_formats": ["json", "csv"] if result.get("success") else [],
+                "integration_data": {
+                    "compatible_tools": ["autopsy", "hashdeep", "bulk_extractor"],
+                    "output_ready": result.get("success", False),
+                    "chain_of_custody_maintained": bool(input_hashes.get("md5")),
+                    "forensically_sound": True
+                },
                 "results": result
             }
             
@@ -312,18 +327,28 @@ class ExifToolIntegratedRunner:
             self.results["last_extraction"] = standardized_result
             
             self.logger.info(f"Metadata extraction completed in {execution_time:.2f} seconds")
+            self.logger.info(f"Files processed: {len(input_files)}, Output formats: {standardized_result['output_formats']}")
             return standardized_result
             
         except Exception as e:
             execution_time = (datetime.now() - start_time).total_seconds()
             error_result = {
+                "tool_name": "exiftool",
                 "operation": "metadata_extraction",
                 "case_id": self.case_id,
                 "status": "FAILED",
                 "input_path": str(input_path) if 'input_path' in locals() else "unknown",
                 "execution_time": execution_time,
                 "error_message": str(e),
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
+                "end_time": datetime.now().isoformat(),
+                "files_processed": 0,
+                "integration_data": {
+                    "compatible_tools": [],
+                    "output_ready": False,
+                    "chain_of_custody_maintained": False,
+                    "forensically_sound": False
+                }
             }
             
             self.logger.error(f"Metadata extraction failed: {e}")
@@ -431,140 +456,35 @@ class ExifToolIntegratedRunner:
                 "error": str(e)
             }
     
-    def remove_metadata(self, input_path: str, **kwargs) -> Dict[str, Any]:
-        """
-        Remove metadata from files
-        
-        Args:
-            input_path (str): Path to file or directory to clean
-            **kwargs: Additional options
-            
-        Returns:
-            dict: Removal results
-        """
-        start_time = datetime.now()
-        self.logger.info(f"Starting metadata removal for: {input_path}")
-        
-        try:
-            if not METADATA_MODULES_AVAILABLE:
-                raise RuntimeError("Python metadata modules not available for removal")
-            
-            # Prepare paths
-            input_path = Path(input_path)
-            if not input_path.exists():
-                raise FileNotFoundError(f"Input path does not exist: {input_path}")
-            
-            # Setup removal workspace
-            removal_input = self.temp_dir / "removal_input"
-            removal_output = self.removal_dir / "cleaned_files"
-            removal_reports = self.removal_dir / "reports"
-            
-            removal_input.mkdir(exist_ok=True)
-            removal_output.mkdir(exist_ok=True)
-            removal_reports.mkdir(exist_ok=True)
-            
-            # Copy input to workspace
-            if input_path.is_file():
-                import shutil
-                shutil.copy2(input_path, removal_input / input_path.name)
-            elif input_path.is_dir():
-                import shutil
-                temp_input = removal_input / "input_data"
-                shutil.copytree(input_path, temp_input)
-            
-            # Initialize metadata remover
-            remover = MetadataRemover(
-                input_directory=str(removal_input),
-                output_directory=str(removal_output),
-                reports_directory=str(removal_reports)
-            )
-            
-            # Run removal
-            results = remover.run_removal_process(
-                export_json=True,
-                export_csv=True
-            )
-            
-            execution_time = (datetime.now() - start_time).total_seconds()
-            
-            # Prepare standardized result
-            standardized_result = {
-                "operation": "metadata_removal",
-                "case_id": self.case_id,
-                "status": "SUCCESS",
-                "input_path": str(input_path),
-                "cleaned_files_directory": str(removal_output),
-                "reports_directory": str(removal_reports),
-                "execution_time": execution_time,
-                "removal_stats": remover.removal_stats,
-                "timestamp": start_time.isoformat(),
-                "results": results
-            }
-            
-            self.results["last_removal"] = standardized_result
-            self.logger.info(f"Metadata removal completed in {execution_time:.2f} seconds")
-            return standardized_result
-            
-        except Exception as e:
-            execution_time = (datetime.now() - start_time).total_seconds()
-            error_result = {
-                "operation": "metadata_removal",
-                "case_id": self.case_id,
-                "status": "FAILED",
-                "input_path": str(input_path) if 'input_path' in locals() else "unknown",
-                "execution_time": execution_time,
-                "error_message": str(e),
-                "timestamp": start_time.isoformat()
-            }
-            
-            self.logger.error(f"Metadata removal failed: {e}")
-            self.results["last_removal"] = error_result
-            return error_result
+
     
-    def run_analysis(self, input_path: str, operation: str = "extract", **kwargs) -> Dict[str, Any]:
+    def run_analysis(self, input_path: str, **kwargs) -> Dict[str, Any]:
         """
         Run analysis operation (main entry point for orchestrators)
         
         Args:
             input_path (str): Path to analyze
-            operation (str): Operation type ("extract", "remove", "both")
             **kwargs: Additional options
             
         Returns:
             dict: Analysis results
         """
-        self.logger.info(f"Running analysis operation: {operation} on {input_path}")
+        self.logger.info(f"Running metadata extraction analysis on {input_path}")
         
         results = {
             "case_id": self.case_id,
-            "operation": operation,
+            "operation": "extract",
             "input_path": input_path,
             "start_time": datetime.now().isoformat(),
             "status": "RUNNING"
         }
         
         try:
-            if operation in ["extract", "both"]:
-                extract_result = self.extract_metadata(input_path, **kwargs)
-                results["extraction"] = extract_result
+            extract_result = self.extract_metadata(input_path, **kwargs)
+            results["extraction"] = extract_result
             
-            if operation in ["remove", "both"]:
-                remove_result = self.remove_metadata(input_path, **kwargs)
-                results["removal"] = remove_result
-            
-            # Determine overall status
-            all_operations = []
-            if "extraction" in results:
-                all_operations.append(results["extraction"]["status"])
-            if "removal" in results:
-                all_operations.append(results["removal"]["status"])
-            
-            if all(status == "SUCCESS" for status in all_operations):
-                results["status"] = "SUCCESS"
-            elif any(status == "SUCCESS" for status in all_operations):
-                results["status"] = "PARTIAL_SUCCESS"
-            else:
-                results["status"] = "FAILED"
+            # Set overall status based on extraction result
+            results["status"] = extract_result["status"]
             
             results["end_time"] = datetime.now().isoformat()
             self.results["last_analysis"] = results
@@ -595,6 +515,242 @@ class ExifToolIntegratedRunner:
         else:
             return self.results
     
+    def _collect_file_statistics(self, file_list: List[Path]) -> Dict[str, Any]:
+        """
+        Collect statistics about processed files for integration purposes
+        
+        Args:
+            file_list (List[Path]): List of file paths
+            
+        Returns:
+            Dict[str, Any]: File statistics
+        """
+        try:
+            if not file_list:
+                return {"total_files": 0, "total_size_bytes": 0, "file_types": {}}
+            
+            total_size = 0
+            file_types = {}
+            
+            for file_path in file_list:
+                try:
+                    size = file_path.stat().st_size
+                    total_size += size
+                    
+                    # Track file extensions
+                    ext = file_path.suffix.lower() or "no_extension"
+                    file_types[ext] = file_types.get(ext, 0) + 1
+                    
+                except Exception:
+                    continue
+            
+            return {
+                "total_files": len(file_list),
+                "total_size_bytes": total_size,
+                "total_size_mb": round(total_size / (1024 * 1024), 2),
+                "file_types": file_types,
+                "largest_file_size": max((f.stat().st_size for f in file_list if f.exists()), default=0)
+            }
+        except Exception as e:
+            self.logger.warning(f"Could not collect file statistics: {e}")
+            return {"total_files": len(file_list), "error": str(e)}
+    
+    def _generate_file_hashes(self, file_path: str) -> Dict[str, str]:
+        """
+        Generate hash values for chain of custody (integration with hashdeep)
+        
+        Args:
+            file_path (str): Path to file or directory
+            
+        Returns:
+            Dict[str, str]: Hash values
+        """
+        try:
+            file_path = Path(file_path)
+            
+            if file_path.is_file():
+                # For single files, calculate hashes directly
+                import hashlib
+                
+                hashes = {"md5": "", "sha256": ""}
+                
+                with open(file_path, 'rb') as f:
+                    content = f.read()
+                    hashes["md5"] = hashlib.md5(content).hexdigest()
+                    hashes["sha256"] = hashlib.sha256(content).hexdigest()
+                
+                return hashes
+            
+            elif file_path.is_dir():
+                # For directories, create a manifest hash
+                import hashlib
+                
+                file_list = sorted([str(p) for p in file_path.rglob("*") if p.is_file()])
+                manifest_content = "\n".join(file_list).encode('utf-8')
+                
+                return {
+                    "md5": hashlib.md5(manifest_content).hexdigest(),
+                    "sha256": hashlib.sha256(manifest_content).hexdigest(),
+                    "type": "directory_manifest"
+                }
+            
+        except Exception as e:
+            self.logger.warning(f"Could not generate hashes for {file_path}: {e}")
+        
+        return {"md5": "", "sha256": "", "error": "hash_generation_failed"}
+    
+    def get_integration_info(self) -> Dict[str, Any]:
+        """
+        Get information about tool integration capabilities
+        
+        Returns:
+            Dict[str, Any]: Integration information
+        """
+        return {
+            "tool_name": "exiftool",
+            "version": "1.0",
+            "capabilities": [
+                "metadata_extraction",
+                "batch_processing",
+                "multiple_formats",
+                "forensic_reporting"
+            ],
+            "supported_formats": {
+                "images": [".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".gif", ".webp"],
+                "documents": [".pdf"],
+                "audio": [".mp3", ".wav", ".flac", ".ogg", ".aac", ".m4a"],
+                "video": [".mp4", ".avi", ".mkv", ".mov", ".wmv"]
+            },
+            "output_formats": ["json", "csv", "text"],
+            "integration_ready": True,
+            "chain_of_custody_support": True,
+            "compatible_tools": {
+                "autopsy": {
+                    "compatible": True,
+                    "data_exchange": "json_metadata",
+                    "use_case": "supplement_timeline_analysis"
+                },
+                "hashdeep": {
+                    "compatible": True,
+                    "data_exchange": "file_integrity_verification",
+                    "use_case": "evidence_integrity_chain"
+                },
+                "bulk_extractor": {
+                    "compatible": True,
+                    "data_exchange": "cross_reference_metadata",
+                    "use_case": "enhanced_artifact_context"
+                },
+                "volatility3": {
+                    "compatible": True,
+                    "data_exchange": "file_metadata_correlation",
+                    "use_case": "memory_dump_file_correlation"
+                }
+            }
+        }
+    
+    def export_for_integration(self, target_tool: str, case_id: str = None) -> Dict[str, Any]:
+        """
+        Export data in format suitable for integration with other tools
+        
+        Args:
+            target_tool (str): Target tool name (autopsy, hashdeep, etc.)
+            case_id (str): Case identifier for cross-tool referencing
+            
+        Returns:
+            Dict[str, Any]: Integration-ready data export
+        """
+        case_id = case_id or self.case_id
+        
+        # Get latest extraction results
+        last_result = self.results.get("last_extraction", {})
+        
+        if target_tool.lower() == "autopsy":
+            return {
+                "case_id": case_id,
+                "tool_source": "exiftool",
+                "export_type": "autopsy_integration",
+                "metadata_files": last_result.get("results", {}).get("results", {}),
+                "timeline_data": self._create_timeline_data(last_result),
+                "artifact_references": self._create_artifact_references(last_result)
+            }
+        
+        elif target_tool.lower() == "hashdeep":
+            return {
+                "case_id": case_id,
+                "tool_source": "exiftool",
+                "export_type": "hashdeep_integration",
+                "file_manifest": last_result.get("file_statistics", {}),
+                "integrity_hashes": last_result.get("integrity_hashes", {}),
+                "chain_of_custody": self._create_custody_data(last_result)
+            }
+        
+        elif target_tool.lower() == "bulk_extractor":
+            return {
+                "case_id": case_id,
+                "tool_source": "exiftool",
+                "export_type": "bulk_extractor_integration",
+                "metadata_context": last_result.get("results", {}),
+                "file_locations": self._create_file_location_data(last_result)
+            }
+        
+        else:
+            # Generic export format
+            return {
+                "case_id": case_id,
+                "tool_source": "exiftool",
+                "export_type": "generic_integration",
+                "full_results": last_result,
+                "summary": self.generate_summary()
+            }
+    
+    def _create_timeline_data(self, extraction_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Create timeline data for Autopsy integration"""
+        timeline_events = []
+        
+        # Extract timestamp information from results for timeline creation
+        if "results" in extraction_result and "results" in extraction_result["results"]:
+            # This would be populated with actual timestamp data from extraction
+            timeline_events.append({
+                "timestamp": extraction_result.get("timestamp"),
+                "event_type": "metadata_extraction",
+                "description": f"Metadata extracted for case {self.case_id}",
+                "source": "exiftool",
+                "file_count": extraction_result.get("files_processed", 0)
+            })
+        
+        return timeline_events
+    
+    def _create_artifact_references(self, extraction_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Create artifact references for cross-tool correlation"""
+        return [{
+            "artifact_type": "metadata_extraction",
+            "source_tool": "exiftool",
+            "case_id": self.case_id,
+            "file_path": extraction_result.get("input_path"),
+            "extraction_timestamp": extraction_result.get("timestamp"),
+            "reference_id": f"exif_{self.case_id}_{extraction_result.get('timestamp', '').replace(':', '_')}"
+        }]
+    
+    def _create_custody_data(self, extraction_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Create chain of custody data for HashDeep integration"""
+        return {
+            "tool_name": "exiftool",
+            "case_id": self.case_id,
+            "operation": "metadata_extraction",
+            "timestamp": extraction_result.get("timestamp"),
+            "input_hashes": extraction_result.get("integrity_hashes", {}),
+            "forensically_sound": extraction_result.get("integration_data", {}).get("forensically_sound", False)
+        }
+    
+    def _create_file_location_data(self, extraction_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Create file location data for Bulk Extractor cross-referencing"""
+        return [{
+            "source_path": extraction_result.get("input_path"),
+            "metadata_extracted": extraction_result.get("status") == "SUCCESS",
+            "tool_source": "exiftool",
+            "case_reference": self.case_id
+        }]
+
     def generate_summary(self) -> Dict[str, Any]:
         """
         Generate a summary of all operations
@@ -611,8 +767,7 @@ class ExifToolIntegratedRunner:
             "config_summary": {
                 "native_exiftool_available": bool(self.config["exiftool"]["executable_path"]),
                 "python_modules_available": METADATA_MODULES_AVAILABLE,
-                "extraction_enabled": self.config["extraction"]["export_json"] or self.config["extraction"]["export_csv"],
-                "removal_enabled": self.config["removal"]["backup_originals"]
+                "extraction_enabled": self.config["extraction"]["export_json"] or self.config["extraction"]["export_csv"]
             },
             "timestamp": datetime.now().isoformat()
         }
@@ -655,51 +810,175 @@ def quick_extract(input_path: str, case_id: str = None) -> Dict[str, Any]:
     runner = create_runner(case_id)
     return runner.extract_metadata(input_path)
 
-def quick_remove(input_path: str, case_id: str = None) -> Dict[str, Any]:
-    """
-    Quick metadata removal function
-    
-    Args:
-        input_path (str): Path to clean
-        case_id (str): Optional case ID
-        
-    Returns:
-        dict: Removal results
-    """
-    runner = create_runner(case_id)
-    return runner.remove_metadata(input_path)
-
-def quick_analysis(input_path: str, operation: str = "extract", case_id: str = None) -> Dict[str, Any]:
+def quick_analysis(input_path: str, case_id: str = None) -> Dict[str, Any]:
     """
     Quick analysis function
     
     Args:
         input_path (str): Path to analyze
-        operation (str): Operation type
         case_id (str): Optional case ID
         
     Returns:
         dict: Analysis results
     """
     runner = create_runner(case_id)
-    return runner.run_analysis(input_path, operation)
+    return runner.run_analysis(input_path)
+
+def get_tool_integration_info() -> Dict[str, Any]:
+    """
+    Get ExifTool integration capabilities without creating a runner instance
+    
+    Returns:
+        Dict[str, Any]: Integration information
+    """
+    runner = create_runner()
+    return runner.get_integration_info()
+
+def export_for_tool(input_path: str, target_tool: str, case_id: str = None) -> Dict[str, Any]:
+    """
+    Extract metadata and export in format suitable for specific target tool
+    
+    Args:
+        input_path (str): Path to analyze
+        target_tool (str): Target tool name
+        case_id (str): Optional case ID
+        
+    Returns:
+        Dict[str, Any]: Tool-specific export data
+    """
+    runner = create_runner(case_id)
+    
+    # First extract metadata
+    extraction_result = runner.extract_metadata(input_path)
+    
+    # Then export for target tool
+    if extraction_result["status"] == "SUCCESS":
+        return runner.export_for_integration(target_tool, case_id)
+    else:
+        return {
+            "error": "Extraction failed",
+            "extraction_result": extraction_result,
+            "target_tool": target_tool
+        }
 
 # Command line interface
+def interactive_mode():
+    """
+    Interactive mode that prompts user for input via command prompt
+    """
+    print("=" * 60)
+    print("         EXIFTOOL METADATA EXTRACTION TOOL")
+    print("=" * 60)
+    print()
+    
+    # Get input file/directory path from user
+    while True:
+        input_path = input("Enter the path to image file or .dd file to analyze: ").strip()
+        
+        if not input_path:
+            print("Error: Please enter a valid path.")
+            continue
+            
+        # Remove quotes if present
+        input_path = input_path.strip('"').strip("'")
+        
+        if not Path(input_path).exists():
+            print(f"Error: Path '{input_path}' does not exist. Please enter a valid path.")
+            continue
+        
+        break
+    
+    # Get case ID from user (optional)
+    case_id = input("Enter Case ID (optional, press Enter for auto-generated): ").strip()
+    if not case_id:
+        case_id = f"EXIF_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    print(f"\nProcessing file: {input_path}")
+    print(f"Case ID: {case_id}")
+    print(f"Output will be saved in: tools/exiftool/output/{case_id}/")
+    
+    # Ask for confirmation
+    confirm = input("\nProceed with extraction? (y/n): ").strip().lower()
+    if confirm not in ['y', 'yes']:
+        print("Operation cancelled.")
+        return
+    
+    try:
+        # Create runner with output in exiftool directory
+        runner = create_runner(case_id)
+        
+        # Override output directory to ensure it's in exiftool folder
+        runner.config["output"]["base_dir"] = "output"
+        runner.setup_working_directories()
+        
+        print("\nStarting metadata extraction...")
+        print("-" * 40)
+        
+        # Run extraction
+        result = runner.run_analysis(input_path)
+        
+        print("-" * 40)
+        
+        if result["status"] == "SUCCESS":
+            print("✓ EXTRACTION COMPLETED SUCCESSFULLY!")
+            print(f"Files processed: {result['extraction'].get('files_processed', 0)}")
+            print(f"Execution time: {result['extraction'].get('execution_time', 0):.2f} seconds")
+            print(f"Output directory: {runner.case_output_dir}")
+            
+            # List output files
+            if runner.case_output_dir.exists():
+                print("\nGenerated files:")
+                for file_path in runner.case_output_dir.rglob("*"):
+                    if file_path.is_file():
+                        relative_path = file_path.relative_to(runner.case_output_dir)
+                        file_size = file_path.stat().st_size
+                        print(f"  - {relative_path} ({file_size} bytes)")
+            
+            # Ask if user wants to see the results summary
+            show_summary = input("\nDo you want to see the results summary? (y/n): ").strip().lower()
+            if show_summary in ['y', 'yes']:
+                summary = runner.generate_summary()
+                print("\n" + "=" * 60)
+                print("RESULTS SUMMARY")
+                print("=" * 60)
+                print(json.dumps(summary, indent=2))
+                
+        else:
+            print("✗ EXTRACTION FAILED!")
+            print(f"Error: {result.get('error_message', 'Unknown error')}")
+            
+    except Exception as e:
+        print(f"✗ ERROR: {e}")
+    
+    print("\n" + "=" * 60)
+    print("Thank you for using ExifTool Metadata Extraction Tool")
+    print("=" * 60)
+
 def main():
     """Command line interface for the integrated runner"""
     import argparse
     
     parser = argparse.ArgumentParser(description="ExifTool Integrated Runner")
-    parser.add_argument("input_path", help="Path to file or directory to analyze")
+    parser.add_argument("input_path", nargs="?", help="Path to file or directory to analyze")
     parser.add_argument("--case-id", help="Case identifier")
     parser.add_argument("--config", help="Configuration file path")
-    parser.add_argument("--operation", choices=["extract", "remove", "both"], 
+    parser.add_argument("--operation", choices=["extract"], 
                        default="extract", help="Operation to perform")
     parser.add_argument("--output-dir", help="Override output directory")
     parser.add_argument("--status", action="store_true", help="Show runner status")
     parser.add_argument("--summary", action="store_true", help="Show results summary")
+    parser.add_argument("--integration-info", action="store_true", help="Show tool integration information")
+    parser.add_argument("--export-for", choices=["autopsy", "hashdeep", "bulk_extractor"], 
+                       help="Export results for specific tool integration")
+    parser.add_argument("--chain-of-custody", action="store_true", help="Include full chain of custody data")
+    parser.add_argument("--interactive", "-i", action="store_true", help="Run in interactive mode")
     
     args = parser.parse_args()
+    
+    # If no input_path provided or interactive mode requested, run interactive mode
+    if not args.input_path or args.interactive:
+        interactive_mode()
+        return
     
     try:
         # Create runner
@@ -710,18 +989,31 @@ def main():
             print(json.dumps(status, indent=2))
             return
         
+        if args.integration_info:
+            integration_info = runner.get_integration_info()
+            print(json.dumps(integration_info, indent=2))
+            return
+        
         # Override config if needed
         if args.output_dir:
             runner.config["output"]["base_dir"] = args.output_dir
             runner.setup_working_directories()
         
         # Run analysis
-        result = runner.run_analysis(args.input_path, args.operation)
+        result = runner.run_analysis(args.input_path)
         
         # Show results
         if args.summary:
             summary = runner.generate_summary()
             print(json.dumps(summary, indent=2))
+        elif args.export_for:
+            # Export for specific tool integration
+            if result["status"] in ["SUCCESS", "PARTIAL_SUCCESS"]:
+                export_data = runner.export_for_integration(args.export_for, args.case_id)
+                print(json.dumps(export_data, indent=2))
+            else:
+                print(f"Cannot export for {args.export_for}: extraction failed")
+                print(json.dumps(result, indent=2))
         else:
             print(json.dumps(result, indent=2))
         
