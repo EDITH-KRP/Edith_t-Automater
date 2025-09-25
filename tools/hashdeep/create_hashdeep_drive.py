@@ -29,12 +29,11 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 import time
 
-# Configure logging
+# Configure logging (console only - case-specific file logging handled separately)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - [HashDeep-Drive] %(message)s',
     handlers=[
-        logging.FileHandler('hashdeep_drive.log'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -406,7 +405,84 @@ class DriveHashProcessor:
 
 # Example usage and testing
 if __name__ == "__main__":
-    # This is for testing the drive-level hash functionality
-    print("Drive-Level HashDeep Module")
-    print("This module calculates hashes for entire drives/directories")
-    print("Use this for disk images (.E01, .DD) and evidence collections")
+    print("=" * 80)
+    print("EDITH-Automater HashDeep Drive-Level Module")
+    print("=" * 80)
+    print("This tool calculates cryptographic hashes for disk images and directories")
+    print("Supported formats: .E01, .DD, .IMG, directories, and other disk images")
+    print()
+    
+    # Get disk image/directory path from user
+    while True:
+        disk_image_path = input("Enter the path to your disk image or directory: ").strip()
+        
+        # Remove quotes if user added them
+        if disk_image_path.startswith('"') and disk_image_path.endswith('"'):
+            disk_image_path = disk_image_path[1:-1]
+        
+        # Check if path exists
+        if os.path.exists(disk_image_path):
+            break
+        else:
+            print(f"Error: Path '{disk_image_path}' does not exist. Please try again.")
+            print()
+    
+    # Auto-generate case ID based on filename and timestamp
+    filename = os.path.basename(disk_image_path)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    case_id = f"CASE_{filename}_{timestamp}".replace(".", "_")
+    
+    # Set output path
+    output_path = r"e:\Github-adhi982\Edith_t-Automater\tools\hashdeep\Initial_Hash_output"
+    
+    print()
+    print(f"Target: {disk_image_path}")
+    print(f"Case ID: {case_id}")
+    print(f"Output: {output_path}")
+    print()
+    
+    # Get file/directory size for estimation
+    if os.path.isfile(disk_image_path):
+        file_size = os.path.getsize(disk_image_path)
+        print(f"File Size: {file_size:,} bytes ({file_size / (1024**3):.2f} GB)")
+    elif os.path.isdir(disk_image_path):
+        print("Processing directory - calculating total size...")
+    
+    print("\nStarting hash calculation...")
+    print("This may take several minutes for large files/directories...")
+    print("Progress will be displayed every 100MB processed.")
+    print()
+    
+    # Initialize processor
+    processor = DriveHashProcessor(case_id, output_path)
+    
+    # Calculate hash
+    result = processor.calculate_drive_hash(disk_image_path)
+    
+    # Generate report
+    if result.status == "SUCCESS":
+        report_path = processor.generate_drive_report([result])
+        print()
+        print("=" * 80)
+        print("HASH CALCULATION COMPLETED SUCCESSFULLY!")
+        print("=" * 80)
+        print(f"Target: {result.target_path}")
+        print(f"Type: {result.target_type.title()}")
+        print(f"Files Processed: {result.file_count:,}")
+        print(f"Total Size: {result.total_size:,} bytes")
+        print(f"Processing Time: {result.processing_time:.2f} seconds")
+        print()
+        print("CRYPTOGRAPHIC HASHES:")
+        print(f"MD5:    {result.md5_hash}")
+        print(f"SHA1:   {result.sha1_hash}")
+        print(f"SHA256: {result.sha256_hash}")
+        print()
+        print(f"Forensic Report: {report_path}")
+        print("=" * 80)
+    else:
+        print()
+        print("=" * 80)
+        print("HASH CALCULATION FAILED!")
+        print("=" * 80)
+        print(f"Error: {result.error_message}")
+        print("=" * 80)
