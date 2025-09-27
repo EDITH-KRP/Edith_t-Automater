@@ -32,9 +32,21 @@ def get_partition_offset(image_path):
             break
     return offset, output
 
-def main():
-    image_path = input("Enter path to evidence image (.E01/.dd): ").strip()
+def main(image_path=None):
+    """
+    Main function for forensic analysis.
+    If image_path is None, ask for input.
+    """
+    if image_path is None:
+        image_path = input("Enter path to evidence image (.E01/.dd): ").strip()
 
+    # Convert to absolute path
+    image_path = os.path.abspath(image_path)
+
+    # Check file exists
+    if not os.path.exists(image_path):
+        print(f"[!] Error: File not found: {image_path}")
+        return
 
     # Setup folder
     case_folder = os.path.join("Evidence")
@@ -65,7 +77,7 @@ def main():
     # Run fls
     print("[*] Running fls...")
     fls_out = run_cmd(f"fls -o {offset} -r {image_path}")
-    with open(os.path.join(case_folder, "files."), "w") as f:
+    with open(os.path.join(case_folder, "files.txt"), "w") as f:
         f.write(fls_out)
 
     # Recover files
@@ -86,5 +98,6 @@ def main():
 
     print(f"[+] Analysis complete. Results saved in {case_folder}")
 
+# Allow running standalone
 if __name__ == "__main__":
     main()
