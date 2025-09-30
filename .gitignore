@@ -1,0 +1,51 @@
+# Volatility3 framework (large external dependency)
+tools/volatility/volatility3/
+
+# Volatility analysis results
+tools/volatility/results/
+
+# Memory dump files
+*.mem
+*.raw
+*.dmp
+*.vmem
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Evidence files (potentially sensitive)
+evidence/
+
+# Large binary files
+*.bin
+*.img
+*.dd
+*.E01
+*.Ex01
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
