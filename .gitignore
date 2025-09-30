@@ -1,0 +1,232 @@
+# ============================================================================
+# EDITH-Automater Digital Forensics Project .gitignore
+# ============================================================================
+
+# ============================================================================
+# Python
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.local
+
+# ============================================================================
+# Digital Forensics & Evidence Files (SENSITIVE - NEVER COMMIT)
+# ============================================================================
+# Memory dumps
+*.mem
+*.raw
+*.dmp
+*.vmem
+*.hibernation
+
+# Disk images
+*.dd
+*.img
+*.bin
+*.iso
+*.dmg
+
+# EnCase evidence files
+*.E01
+*.Ex01
+*.L01
+*.Lx01
+
+# Other forensic formats
+*.aff
+*.afd
+*.afm
+*.001
+*.vmdk
+*.vhd
+*.vhdx
+
+# Mobile device images
+*.tar
+*.backup
+*.ab
+
+# ============================================================================
+# Tools & External Dependencies
+# ============================================================================
+# Volatility3 framework (large external dependency)
+tools/volatility/volatility3/
+tools/volatility/results/
+
+# Autopsy case files
+*.db
+*.db-journal
+*.properties
+
+# Bulk Extractor output
+bulk_extractor_output/
+*/bulk_extractor_output/
+
+# ExifTool binaries (if not needed in repo)
+tools/exiftool/bin/
+
+# ============================================================================
+# Evidence Processing & Results
+# ============================================================================
+# Evidence storage directories
+evidence/
+Evidence/
+EVIDENCE/
+
+# Processing results
+results/
+Results/
+RESULTS/
+
+# Final reports (may contain sensitive data)
+reports/Final_Output_reports/
+Final_Reports/
+
+# Hash verification files
+*.md5
+*.sha1
+*.sha256
+*.hash
+
+# ============================================================================
+# Logs & Temporary Files
+# ============================================================================
+# Log files
+*.log
+logs/
+*.log.*
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+*~
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# ============================================================================
+# Development Environment
+# ============================================================================
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# ============================================================================
+# Operating System
+# ============================================================================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ============================================================================
+# Configuration & Sensitive Data
+# ============================================================================
+# Configuration files with sensitive data
+config.ini
+settings.conf
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================================================
+# Large Files & Archives
+# ============================================================================
+# Compressed files (often large)
+*.zip
+*.rar
+*.7z
+*.tar.gz
+*.tar.bz2
+
+# Large media files
+*.avi
+*.mov
+*.mp4
+*.mkv
+*.webm
+
+# ============================================================================
+# Case-Specific Exclusions
+# ============================================================================
+# Case directories (uncomment if needed)
+# case_*/
+# Case_*/
+# CASE_*/
+
+# Specific tool outputs
+hashdeep_output/
+foremost_output/
+scalpel_output/
+
+# ============================================================================
+# Documentation Build Files
+# ============================================================================
+# Sphinx documentation
+docs/_build/
+docs/build/
+
+# MkDocs
+site/

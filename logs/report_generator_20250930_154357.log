@@ -1,4 +1,0 @@
-2025-09-30 15:43:57,252 - INFO - [ReportGen] Starting PDF report generation process...
-2025-09-30 15:43:57,252 - INFO - [ReportGen] Reading questions file: e:\Github-adhi982\Edith_t-Automater\evidence\Results\Questions\questions.txt
-2025-09-30 15:43:57,252 - ERROR - [ReportGen] Error reading questions file: 'utf-8' codec can't decode byte 0x92 in position 333: invalid start byte
-2025-09-30 15:43:57,252 - ERROR - [ReportGen] Failed to read questions file. Cannot proceed.
