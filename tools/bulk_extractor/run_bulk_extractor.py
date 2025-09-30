@@ -28,9 +28,14 @@ def run_bulk_extractor(input_file, output_dir, features=None):
 
 
 if __name__ == "__main__":
-    # Example usage
-    input_file = "/mnt/c/Users/Sabiha Anjum/Downloads/nps-2010-emails.E01"
-    output_dir = "/mnt/c/Users/Sabiha Anjum/Downloads/be_results"
+    # Get the current folder where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Input forensic image (must be placed in the same folder as this script)
+    input_file = os.path.join(script_dir, "nps-2010-emails.E01")
+
+    # Output results directory (inside the same folder)
+    output_dir = os.path.join(script_dir, "be_results")
 
     os.makedirs(output_dir, exist_ok=True)
     run_bulk_extractor(input_file, output_dir)
