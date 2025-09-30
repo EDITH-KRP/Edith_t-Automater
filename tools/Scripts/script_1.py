@@ -13,7 +13,7 @@ def main():
         print("      Welcome to the EDITH Automation Main Menu")
         print("="*50)
         print("Choose an option to run:")
-        print("1. Answer Questions for Digital Evidence Collection")
+        print("1. Answer Questions for Digital Evidence Collection (Form Filling)")
         print("2. Run Digital Evidence Collection (Image Creation)")
         print("3. Run Tools for Forensic Analysis (Report Generation)")
         print("0. Exit")
