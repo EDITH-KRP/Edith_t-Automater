@@ -15,7 +15,7 @@ def main():
         print("Choose an option to run:")
         print("1. Answer Questions for Digital Evidence Collection")
         print("2. Run Digital Evidence Collection (Image Creation)")
-        print("3. Run Tools for Forensic Analysis")
+        print("3. Run Tools for Forensic Analysis (Report Generation)")
         print("0. Exit")
 
         choice = input("\nEnter option number: ").strip()
