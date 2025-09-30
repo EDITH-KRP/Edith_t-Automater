@@ -1,663 +1,867 @@
-#!/usr/bin/env python3
-"""
-EDITH-Automater Simple Report Generator
-HTML Report Generation from Digital Evidence Collection Forms
-
-This script automatically:
-1. Reads form data from questions.txt
-2. Populates HTML templates with the data
-3. Saves filled HTML reports (ready for manual PDF conversion)
-
-Author: EDITH-Automater Team
-Date: September 30, 2025
-"""
-
 import os
+import glob
 import re
-from pathlib import Path
-from typing import Dict, List, Optional
-import logging
+import time
 from datetime import datetime
 
-class SimpleReportGenerator:
-    """
-    Simple class for generating HTML reports from digital evidence collection forms
-    """
+def read_questions_file():
+    """Read the most recent questions.txt file"""
+    # Look for questions files in the evidence/Results/Questions directory
+    pattern = os.path.join('..', '..', 'evidence', 'Results', 'Questions', '*.txt')
+    question_files = glob.glob(pattern)
     
-    def __init__(self):
-        """Initialize the Report Generator"""
-        # Set up paths
-        self.base_path = Path("e:/Github-adhi982/Edith_t-Automater")
-        self.questions_file = self.base_path / "evidence" / "Results" / "Questions" / "questions.txt"
-        self.html_templates_dir = self.base_path / "reports" / "Reports html"
-        self.output_dir = self.base_path / "evidence" / "Final_Reports"
+    if not question_files:
+        print("No question files found. Looking in evidence directory...")
+        pattern = os.path.join('..', '..', 'evidence', '*.txt')
+        question_files = glob.glob(pattern)
         
-        # Create output directory if it doesn't exist
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Set up logging
-        self.setup_logging()
-        
-        # Initialize data storage
-        self.form_data = {}
-        
-        # Template mapping
-        self.html_templates = [
-            "chain_of_custody.html",
-            "digital_evidence_form.html", 
-            "email_digital_evidence_form.html",
-            "form_65B.html",
-            "job_form.html",
-            "master_copy.html"
-        ]
-        
-    def setup_logging(self):
-        """Set up logging for the report generator"""
-        log_file = self.base_path / "logs" / f"simple_report_generator_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - [SimpleReportGen] %(message)s',
-            handlers=[
-                logging.FileHandler(log_file),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
-        
-    def read_questions_file(self) -> Dict[str, str]:
-        """
-        Read and parse the questions.txt file
-        
-        Returns:
-            dict: Parsed form data
-        """
-        if not self.questions_file.exists():
-            self.logger.error(f"Questions file not found: {self.questions_file}")
-            return {}
-            
-        self.logger.info(f"Reading questions file: {self.questions_file}")
-        
-        # Try different encodings to handle the file
-        encodings_to_try = ['utf-8', 'utf-8-sig', 'cp1252', 'latin1', 'iso-8859-1']
-        
-        for encoding in encodings_to_try:
-            try:
-                with open(self.questions_file, 'r', encoding=encoding) as f:
-                    content = f.read()
-                break
-            except UnicodeDecodeError:
-                continue
-        else:
-            # If all encodings fail, try reading as binary and replace errors
-            try:
-                with open(self.questions_file, 'r', encoding='utf-8', errors='replace') as f:
-                    content = f.read()
-            except Exception as e:
-                self.logger.error(f"Error reading questions file with any encoding: {str(e)}")
-                return {}
-        
-        try:
-            # Parse the content
-            data = {}
-            lines = content.split('\n')
-            
-            for line in lines:
-                line = line.strip()
-                if ':' in line and not line.startswith('=') and line:
-                    # Split only on the first colon to handle values with colons
-                    parts = line.split(':', 1)
-                    if len(parts) == 2:
-                        key = parts[0].strip()
-                        value = parts[1].strip()
-                        # Clean up any encoding artifacts
-                        key = key.replace('�', "'")
-                        value = value.replace('�', "'")
-                        data[key] = value
-            
-            self.form_data = data
-            self.logger.info(f"Successfully parsed {len(data)} fields from questions file")
-            
-            # Print parsed data for debugging
-            print("\nParsed Form Data:")
-            print("-" * 50)
-            for key, value in data.items():
-                print(f"{key}: {value}")
-            print("-" * 50)
-            
-            return data
-            
-        except Exception as e:
-            self.logger.error(f"Error parsing questions file: {str(e)}")
-            return {}
+    if not question_files:
+        print("No question files found. Please run q_script.py first.")
+        return None
     
-    def populate_html_template(self, template_name: str, template_content: str) -> str:
-        """
-        Populate HTML template with form data
-        
-        Args:
-            template_name (str): Name of the template file
-            template_content (str): Original HTML content
-            
-        Returns:
-            str: Populated HTML content
-        """
-        self.logger.info(f"Populating template: {template_name}")
-        
-        populated_content = template_content
-        
-        # Get the exact examiner key from the data
-        examiner_key = "Examiner's Name and Details"
-        examiner_value = self.form_data.get(examiner_key, 'N/A')
-        
-        # Direct field replacements for common fields
-        replacements = {
-            # Case information
-            "Case Name:": f"Case Name: {self.form_data.get('Case Name / No', 'N/A')}",
-            "Name of The Authorized Officer:": f"Name of The Authorized Officer: {self.form_data.get('Authorized Officer', 'N/A')}",
-            "Name of the Assessee:": f"Name of the Assessee: {self.form_data.get('Name of Assessee / Party', 'N/A')}",
-            
-            # Examiner information - use exact key from parsed data
-            "Examiner's Name and Details : ": f"Examiner's Name and Details : {examiner_value}",
-            "Digital Forensic Examiner:": f"Digital Forensic Examiner: {self.form_data.get('Digital Forensic Examiner', 'N/A')}",
-            
-            # Device information
-            "Device Owner / In Possession of:": f"Device Owner / In Possession of: {self.form_data.get('Device Owner / In Possession of', 'N/A')}",
-            "Whether Volatile Memory / RAM Memory was collected?": f"Whether Volatile Memory / RAM Memory was collected? {self.form_data.get('Volatile Memory / RAM Collected (Yes/No)', 'N/A')}",
-            
-            # Drive and device details
-            "Make :": f"Make: {self.form_data.get('Device Make', 'N/A')}",
-            "Drive Model:": f"Drive Model: {self.form_data.get('Drive Model', 'N/A')}",
-            "Drive SN:": f"Drive SN: {self.form_data.get('Drive Serial Number', 'N/A')}",
-            "Size:": f"Size: {self.form_data.get('Hard Disk Capacity', 'N/A')}",
-            
-            # Storage information
-            "Storage Master Copy Make/Model/Size/Serial No:": f"Storage Master Copy: {self.form_data.get('Storage Master Copy Make/Model/Size/Serial No', 'N/A')}",
-            "Storage Working Copy Make/Model/Size/Serial No:": f"Storage Working Copy: {self.form_data.get('Storage Working Copy Make/Model/Size/Serial No', 'N/A')}",
-            
-            # Hash information
-            "Is Hash Value Calculated (Yes/No):": f"Hash Value Calculated: {self.form_data.get('Is Hash Value Calculated (Yes/No)', 'N/A')}",
-            "Algorithm Used (MD5/SHA1/Others):": f"Algorithm Used: {self.form_data.get('Algorithm Used (MD5/SHA1/Others)', 'N/A')}",
-            "MD5 Hash Value:": f"MD5 Hash Value: {self.form_data.get('MD5 Hash Value', 'N/A')}",
-            "SHA1 Hash Value:": f"SHA1 Hash Value: {self.form_data.get('SHA1 Hash Value', 'N/A')}",
-            
-            # Email information
-            "Email Service Provider:": f"Email Service Provider: {self.form_data.get('Email Service Provider', 'N/A')}",
-            "Email ID:": f"Email ID: {self.form_data.get('Email ID', 'N/A')}",
-            "Software Used to Backup Email:": f"Software Used to Backup Email: {self.form_data.get('Software Used to Backup Email', 'N/A')}",
-            "Is Email Data Encrypted (Yes/No):": f"Email Data Encrypted: {self.form_data.get('Is Email Data Encrypted (Yes/No)', 'N/A')}",
-            "Email Data Handling (Previewing/Imaging/Backup):": f"Email Data Handling: {self.form_data.get('Email Data Handling (Previewing/Imaging/Backup)', 'N/A')}",
-            
-            # Witness information
-            "Witness Name:": f"Witness Name: {self.form_data.get('Witness Name', 'N/A')}",
-            "Witness Father's Name:": f"Witness Father's Name: {self.form_data.get('Witness Father\'s Name', 'N/A')}",
-            
-            # Working hours and dates
-            "Working Hours:": f"Working Hours: {self.form_data.get('Working Hours', 'N/A')}",
-            "Search Date:": f"Search Date: {self.form_data.get('Search Date', 'N/A')}",
-            "Hard Disk Capacity:": f"Hard Disk Capacity: {self.form_data.get('Hard Disk Capacity', 'N/A')}",
-            "No. of HDD Used:": f"No. of HDD Used: {self.form_data.get('No. of HDD Used', 'N/A')}",
-            "No. of HDD provided by Lab Systems (I) Pvt. Ltd.:": f"No. of HDD provided by Lab Systems: {self.form_data.get('No. of HDD provided by Lab Systems (I) Pvt. Ltd.', 'N/A')}",
-            "No. of HDD provided by Income Tax Department:": f"No. of HDD provided by Income Tax Department: {self.form_data.get('No. of HDD provided by Income Tax Department', 'N/A')}",
-            
-            # Imaging software
-            "Imaging Software / Version:": f"Imaging Software / Version: {self.form_data.get('Imaging Software / Version', 'N/A')}",
-            
-            # Shutdown type
-            "Shut Down Type": f"Shut Down Type: {self.form_data.get('Shut Down Type (Normal/Power Pulled/Battery Removed/N/A)', 'N/A')}",
-        }
-        
-        # Apply all text replacements
-        for search_text, replacement in replacements.items():
-            if search_text in populated_content:
-                populated_content = populated_content.replace(search_text, replacement)
-        
-        # Handle specific table cell replacements that need full cell content replacement
-        if 'Examiner\'s Name and Details :' in populated_content:
-            populated_content = populated_content.replace(
-                'Examiner\'s Name and Details : </td>',
-                f'Examiner\'s Name and Details : {examiner_value}</td>'
-            )
-        
-        # Handle Digital Forensic Examiner field
-        populated_content = populated_content.replace(
-            '<td colspan="4" style="height: 60px;">Digital Forensic Examiner:</td>',
-            f'<td colspan="4" style="height: 60px;">Digital Forensic Examiner: {self.form_data.get("Digital Forensic Examiner", "N/A")}</td>'
-        )
-        
-        # Handle empty table cells that need specific data
-        # Fill empty cells after specific labels
-        
-        # Handle "Make :" field
-        populated_content = populated_content.replace(
-            "<td>Make :</td>",
-            f"<td>Make: {self.form_data.get('Device Make', 'N/A')}</td>"
-        )
-        
-        # Handle "Drive Model:" field  
-        populated_content = populated_content.replace(
-            "<td colspan=\"2\">Drive Model:</td>",
-            f"<td colspan=\"2\">Drive Model: {self.form_data.get('Drive Model', 'N/A')}</td>"
-        )
-        
-        # Handle "Drive SN:" field
-        populated_content = populated_content.replace(
-            "<td>Drive SN:</td>",
-            f"<td>Drive SN: {self.form_data.get('Drive Serial Number', 'N/A')}</td>"
-        )
-        
-        # Handle "Size:" field using Hard Disk Capacity
-        populated_content = populated_content.replace(
-            "<td colspan=\"2\">Size:</td>",
-            f"<td colspan=\"2\">Size: {self.form_data.get('Hard Disk Capacity', 'N/A')}</td>"
-        )
-        
-        # Handle "If switched On, What is visible on screen?" field
-        if "Device Status at Seizure (On/Off/Sleep)" in self.form_data:
-            status = self.form_data["Device Status at Seizure (On/Off/Sleep)"]
-            if "on" in status.lower():
-                screen_info = self.form_data.get("Screen Visible (if ON)", "Screen information not provided")
-                populated_content = populated_content.replace(
-                    '<td colspan="3" style="border-top: none;"></td>',
-                    f'<td colspan="3" style="border-top: none;">{screen_info}</td>'
-                )
-        
-        # Handle shutdown type radio buttons
-        if "Shut Down Type (Normal/Power Pulled/Battery Removed/N/A)" in self.form_data:
-            shutdown_type = self.form_data["Shut Down Type (Normal/Power Pulled/Battery Removed/N/A)"].lower()
-            if "normal" in shutdown_type:
-                populated_content = populated_content.replace(
-                    'id="normal" name="shutdown" value="normal"',
-                    'id="normal" name="shutdown" value="normal" checked'
-                )
-            elif "power" in shutdown_type or "pulled" in shutdown_type:
-                populated_content = populated_content.replace(
-                    'id="power-pulled" name="shutdown" value="power-pulled"',
-                    'id="power-pulled" name="shutdown" value="power-pulled" checked'
-                )
-            elif "battery" in shutdown_type:
-                populated_content = populated_content.replace(
-                    'id="battery-removed" name="shutdown" value="battery-removed"',
-                    'id="battery-removed" name="shutdown" value="battery-removed" checked'
-                )
-        
-        # Handle date/time splitting for start and end dates
-        if "Start Date & Time" in self.form_data:
-            datetime_str = self.form_data["Start Date & Time"]
-            try:
-                # Try to parse and split the datetime
-                parts = datetime_str.split()
-                if len(parts) >= 2:
-                    date_part = parts[0]
-                    time_part = " ".join(parts[1:])
-                    
-                    populated_content = populated_content.replace("Start Date:", f"Start Date: {date_part}")
-                    populated_content = populated_content.replace("Start Time:", f"Start Time: {time_part}")
-                else:
-                    populated_content = populated_content.replace("Start Date:", f"Start Date: {datetime_str}")
-            except:
-                populated_content = populated_content.replace("Start Date:", f"Start Date: {datetime_str}")
-                
-        if "End Date & Time" in self.form_data:
-            datetime_str = self.form_data["End Date & Time"]
-            try:
-                parts = datetime_str.split()
-                if len(parts) >= 2:
-                    date_part = parts[0]
-                    time_part = " ".join(parts[1:])
-                    
-                    populated_content = populated_content.replace("End Date:", f"End Date: {date_part}")
-                    populated_content = populated_content.replace("End Time:", f"End Time: {time_part}")
-                else:
-                    populated_content = populated_content.replace("End Date:", f"End Date: {datetime_str}")
-            except:
-                populated_content = populated_content.replace("End Date:", f"End Date: {datetime_str}")
-        
-        # Handle premise address
-        if "Premise Address" in self.form_data:
-            premise_addr = self.form_data["Premise Address"]
-            populated_content = populated_content.replace("Premise Address:", f"Premise Address: {premise_addr}")
-        
-        # Handle radio button selections for device type
-        if template_name == "digital_evidence_form.html" and "Device Type (Laptop/Desktop/Server/Other)" in self.form_data:
-            device_type = self.form_data["Device Type (Laptop/Desktop/Server/Other)"].lower()
-            if "laptop" in device_type:
-                populated_content = populated_content.replace(
-                    'id="laptop" name="device" value="laptop"',
-                    'id="laptop" name="device" value="laptop" checked'
-                )
-            elif "desktop" in device_type:
-                populated_content = populated_content.replace(
-                    'id="desktop" name="device" value="desktop"',
-                    'id="desktop" name="device" value="desktop" checked'
-                )
-            elif "server" in device_type:
-                populated_content = populated_content.replace(
-                    'id="server" name="device" value="server"',
-                    'id="server" name="device" value="server" checked'
-                )
-        
-        # Handle power state radio buttons
-        if template_name == "digital_evidence_form.html" and "Device Status at Seizure (On/Off/Sleep)" in self.form_data:
-            status = self.form_data["Device Status at Seizure (On/Off/Sleep)"].lower()
-            if "on" in status:
-                populated_content = populated_content.replace(
-                    'id="on" name="power" value="on"',
-                    'id="on" name="power" value="on" checked'
-                )
-            elif "off" in status:
-                populated_content = populated_content.replace(
-                    'id="off" name="power" value="off"',
-                    'id="off" name="power" value="off" checked'
-                )
-            elif "sleep" in status:
-                populated_content = populated_content.replace(
-                    'id="hibernate" name="power" value="hibernate"',
-                    'id="hibernate" name="power" value="hibernate" checked'
-                )
-        
-        # Special handling for Chain of Custody form
-        if template_name == "chain_of_custody.html":
-            # Replace case name field
-            populated_content = populated_content.replace(
-                'Name of the Case:</td>',
-                f'Name of the Case: {self.form_data.get("Case Name / No", "N/A")}</td>'
-            )
-            
-            # Replace authorized officer field
-            populated_content = populated_content.replace(
-                'Authorized Officer:</td>',
-                f'Authorized Officer: {self.form_data.get("Authorized Officer", "N/A")}</td>'
-            )
-            
-            # Replace start date and time
-            populated_content = populated_content.replace(
-                'Start Date and Time of Search:</td>',
-                f'Start Date and Time of Search: {self.form_data.get("Start Date & Time", "N/A")}</td>'
-            )
-            
-            # Fill in the case description
-            case_name = self.form_data.get("Case Name / No", "_________________")
-            search_date = self.form_data.get("Search Date", "________________")
-            populated_content = populated_content.replace(
-                'During the search in the case of _________________ on <!-- real date for report --> the',
-                f'During the search in the case of {case_name} on {search_date} the'
-            )
-            
-            # Parse storage details for master and working copies
-            master_copy = self.form_data.get("Storage Master Copy Make/Model/Size/Serial No", "N/A")
-            working_copy = self.form_data.get("Storage Working Copy Make/Model/Size/Serial No", "N/A")
-            
-            # Split master copy details (assuming format: Make/Model/Size/Serial)
-            if master_copy != "N/A" and "/" in master_copy:
-                master_parts = master_copy.split("/")
-                if len(master_parts) >= 4:
-                    master_make = master_parts[0] if len(master_parts) > 0 else "N/A"
-                    master_model = master_parts[1] if len(master_parts) > 1 else "N/A"
-                    master_size = master_parts[2] if len(master_parts) > 2 else "N/A"
-                    master_serial = master_parts[3] if len(master_parts) > 3 else "N/A"
-                else:
-                    master_make = master_model = master_size = master_serial = "N/A"
-            else:
-                master_make = master_model = master_size = master_serial = "N/A"
-            
-            # Split working copy details
-            if working_copy != "N/A" and "/" in working_copy:
-                working_parts = working_copy.split("/")
-                if len(working_parts) >= 4:
-                    working_make = working_parts[0] if len(working_parts) > 0 else "N/A"
-                    working_model = working_parts[1] if len(working_parts) > 1 else "N/A"
-                    working_size = working_parts[2] if len(working_parts) > 2 else "N/A"
-                    working_serial = working_parts[3] if len(working_parts) > 3 else "N/A"
-                else:
-                    working_make = working_model = working_size = working_serial = "N/A"
-            else:
-                working_make = working_model = working_size = working_serial = "N/A"
-                
-            # Replace storage details using simpler approach
-            populated_content = populated_content.replace("Make:<br>", f"Make: {master_make}<br>")
-            populated_content = populated_content.replace("Model:<br>", f"Model: {master_model}<br>")
-            populated_content = populated_content.replace("Size:<br>", f"Size: {master_size}<br>")
-            populated_content = populated_content.replace("Serial NO:", f"Serial NO: {master_serial}")
-            
-            # Also replace for working copy (appears twice in the document)
-            # We need to be more specific for working copy
-            working_section = f'''<td colspan="2" style="font-weight: bold; line-height: 1.8;">
-                    Make: {working_make}<br>
-                    Model: {working_model}<br>
-                    Size: {working_size}<br>
-                    Serial NO: {working_serial}
-                </td>'''
-            
-            # Find and replace the working copy section specifically
-            original_working = '''<td colspan="2" style="font-weight: bold; line-height: 1.8;">
-                    Make:<br>
-                    Model:<br>
-                    Size:<br>
-                    Serial NO:
-                </td>'''
-            
-            # Replace second occurrence (working copy)
-            if original_working in populated_content:
-                # Split by the pattern and rejoin with replacement for second occurrence
-                parts = populated_content.split(original_working)
-                if len(parts) >= 3:  # First occurrence (master) + middle + second occurrence (working)
-                    populated_content = parts[0] + original_working + parts[1] + working_section + "".join(parts[2:])
-        
-        # Special handling for Digital Evidence Form
-        if template_name == "digital_evidence_form.html":
-            # Parse storage data for device info section
-            master_copy = self.form_data.get("Storage Master Copy Make/Model/Size/Serial No", "N/A")
-            
-            if master_copy != "N/A" and "/" in master_copy:
-                master_parts = master_copy.split("/")
-                device_make = master_parts[0] if len(master_parts) > 0 else "N/A"
-                device_model = master_parts[1] if len(master_parts) > 1 else "N/A"
-                device_size = master_parts[2] if len(master_parts) > 2 else "N/A"
-                device_serial = master_parts[3] if len(master_parts) > 3 else "N/A"
-            else:
-                device_make = device_model = device_size = device_serial = "N/A"
-            
-            # Fix Device Info section
-            populated_content = populated_content.replace("Make: N/A", f"Make: {device_make}")
-            populated_content = populated_content.replace("Drive Model: N/A", f"Drive Model: {device_model}")
-            populated_content = populated_content.replace("Drive SN: N/A", f"Drive SN: {device_serial}")
-            
-            # Fix storage details in nested tables on page 2
-            # Master Copy section
-            populated_content = populated_content.replace(
-                '<td style="border: none; width: 25%; text-align: left;">Make:</td>',
-                f'<td style="border: none; width: 25%; text-align: left;">Make: {device_make}</td>',
-                1  # Replace only first occurrence
-            )
-            populated_content = populated_content.replace(
-                '<td style="border: none; width: 25%; text-align: left;">Model:</td>',
-                f'<td style="border: none; width: 25%; text-align: left;">Model: {device_model}</td>',
-                1  # Replace only first occurrence
-            )
-            populated_content = populated_content.replace(
-                '<td style="border: none; padding-top: 15px; text-align: left;">Serial No:</td>',
-                f'<td style="border: none; padding-top: 15px; text-align: left;">Serial No: {device_serial}</td>',
-                1  # Replace only first occurrence
-            )
-            
-            # Working Copy section (second occurrences)
-            populated_content = populated_content.replace(
-                '<td style="border: none; width: 25%; text-align: left;">Make:</td>',
-                f'<td style="border: none; width: 25%; text-align: left;">Make: {device_make}</td>'
-            )
-            populated_content = populated_content.replace(
-                '<td style="border: none; width: 25%; text-align: left;">Model:</td>',
-                f'<td style="border: none; width: 25%; text-align: left;">Model: {device_model}</td>'
-            )
-            populated_content = populated_content.replace(
-                '<td style="border: none; padding-top: 15px; text-align: left;">Serial No:</td>',
-                f'<td style="border: none; padding-top: 15px; text-align: left;">Serial No: {device_serial}</td>'
-            )
-            
-            # Handle hash value radio buttons
-            hash_calculated = self.form_data.get("Is Hash Value Calculated (Yes/No)", "").lower()
-            if "yes" in hash_calculated or "y" in hash_calculated:
-                populated_content = populated_content.replace(
-                    'id="yes-hash" name="hash" value="yes"',
-                    'id="yes-hash" name="hash" value="yes" checked'
-                )
-            
-            # Handle algorithm selection (if we have algorithm data)
-            algorithm = self.form_data.get("Algorithm Used (MD5/SHA1/Others)", "").lower()
-            if "md5" in algorithm:
-                populated_content = populated_content.replace(
-                    'id="md5" name="algorithm" value="md5"',
-                    'id="md5" name="algorithm" value="md5" checked'
-                )
-            if "sha1" in algorithm:
-                populated_content = populated_content.replace(
-                    'id="sha1" name="algorithm" value="sha1"',
-                    'id="sha1" name="algorithm" value="sha1" checked'
-                )
-        
-        # Special handling for Form 65B
-        if template_name == "form_65B.html":
-            # Fill blank-line spans with actual data
-            assessee_name = self.form_data.get("Name of Assessee / Party", "___________")
-            witness_father = self.form_data.get("Witness Father's Name", "___________")
-            premise_address = self.form_data.get("Premise Address", "___________")
-            case_name = self.form_data.get("Case Name / No", "___________")
-            
-            # Replace blank lines in order they appear
-            populated_content = populated_content.replace('<span class="blank-line"></span>', assessee_name, 1)
-            populated_content = populated_content.replace('<span class="blank-line"></span>', witness_father, 1)  
-            populated_content = populated_content.replace('<span class="blank-line"></span>', premise_address, 1)
-            populated_content = populated_content.replace('<span class="blank-line"></span>', case_name, 1)
-        
-        # Special handling for Job Form
-        if template_name == "job_form.html":
-            # Fill working hours in the table
-            working_hours = self.form_data.get("Working Hours", "N/A")
-            populated_content = populated_content.replace("Working Hours</td>", f"Working Hours: {working_hours}</td>")
-            
-            # Fill examiner information
-            examiner_info = self.form_data.get("Digital Forensic Examiner", "N/A")
-            populated_content = populated_content.replace("Digital Forensic Examiner:", f"Digital Forensic Examiner: {examiner_info}")
-        
-        # Special handling for Master Copy
-        if template_name == "master_copy.html":
-            # Fill HDD Serial Number
-            master_copy = self.form_data.get("Storage Master Copy Make/Model/Size/Serial No", "N/A")
-            if master_copy != "N/A" and "/" in master_copy:
-                parts = master_copy.split("/")
-                hdd_serial = parts[3] if len(parts) > 3 else "N/A"
-            else:
-                hdd_serial = "N/A"
-            
-            populated_content = populated_content.replace("HDD Serial No.", hdd_serial)
-            
-            # Fill other missing fields
-            authorized_officer = self.form_data.get("Authorized Officer", "N/A")
-            populated_content = populated_content.replace("Authorized Officer:", f"Authorized Officer: {authorized_officer}")
-        
-        return populated_content
+    # Sort by modification time (newest first)
+    question_files.sort(key=os.path.getmtime, reverse=True)
     
-    def generate_all_reports(self) -> List[str]:
-        """
-        Generate all HTML reports from templates
-        
-        Returns:
-            list: List of generated HTML file paths
-        """
-        self.logger.info("Starting HTML report generation process...")
-        
-        # Read form data
-        if not self.read_questions_file():
-            self.logger.error("Failed to read questions file. Cannot proceed.")
-            return []
-        
-        generated_htmls = []
-        
-        # Process each HTML template
-        for template_name in self.html_templates:
-            template_path = self.html_templates_dir / template_name
-            
-            if not template_path.exists():
-                self.logger.warning(f"Template not found: {template_path}")
-                continue
-                
-            try:
-                # Read HTML template
-                with open(template_path, 'r', encoding='utf-8') as f:
-                    html_content = f.read()
-                
-                # Populate template with data
-                populated_html = self.populate_html_template(template_name, html_content)
-                
-                # Generate HTML filename
-                html_filename = f"FILLED_{template_name.replace('.html', '')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-                html_path = self.output_dir / html_filename
-                
-                # Save populated HTML
-                with open(html_path, 'w', encoding='utf-8') as f:
-                    f.write(populated_html)
-                
-                generated_htmls.append(str(html_path))
-                self.logger.info(f"Generated: {html_filename}")
-                    
-            except Exception as e:
-                self.logger.error(f"Error processing template {template_name}: {str(e)}")
-                continue
-        
-        return generated_htmls
+    # Read the most recent file
+    with open(question_files[0], 'r', errors='ignore') as f:
+        content = f.read()
     
-    def print_summary(self, generated_htmls: List[str]):
-        """
-        Print generation summary
-        
-        Args:
-            generated_htmls (list): List of generated HTML paths
-        """
-        print("\n" + "="*80)
-        print("EDITH-Automater HTML Report Generation Summary")
-        print("="*80)
-        print(f"Output Directory: {self.output_dir}")
-        print(f"Templates Processed: {len(self.html_templates)}")
-        print(f"HTML Files Generated: {len(generated_htmls)}")
-        print()
-        
-        if generated_htmls:
-            print("Generated HTML Reports:")
-            for html_path in generated_htmls:
-                filename = Path(html_path).name
-                print(f"  Generated: {filename}")
-            print()
-            print("📌 To convert to PDF:")
-            print("   1. Open each HTML file in a web browser")
-            print("   2. Use 'Print' → 'Save as PDF' option")
-            print("   3. Or use online HTML-to-PDF converters")
-        else:
-            print("No HTML reports were generated.")
-            
-        print("\n" + "="*80)
+    print(f"Using data from: {question_files[0]}")
+    return content
 
+def parse_questions_data(content):
+    """Parse the questions.txt file content and return a dictionary"""
+    data = {}
+    lines = content.strip().split('\n')
+    
+    # Skip header lines
+    start_idx = 0
+    for i, line in enumerate(lines):
+        if '=' in line or not line.strip():
+            start_idx = i + 1
+    
+    # Parse the actual data lines
+    for line in lines[start_idx:]:
+        if ':' in line:
+            key, value = line.split(':', 1)
+            # Clean up key by removing example text - fix the regex pattern
+            clean_key = re.sub(r'\s*\(Example.*?$', '', key.strip())
+            # Clean up value by removing duplicate text after the closing parenthesis
+            clean_value = re.sub(r'^.*?\):\s*', '', value.strip())
+            if not clean_value:  # If the cleaning removed everything, use original value
+                clean_value = value.strip()
+            data[clean_key] = clean_value
+    
+    return data
+
+def extract_date_time(datetime_str):
+    """Extract date and time from a combined string"""
+    # Clean up any example text
+    datetime_str = re.sub(r'\(Example:.*?\)', '', datetime_str).strip()
+    
+    # Common patterns like '12-09-2025 2:00PM'
+    match = re.search(r'(\d{1,2}-\d{1,2}-\d{4})\s+(\d{1,2}:\d{2}(?:AM|PM)?)', datetime_str)
+    if match:
+        return match.group(1), match.group(2)
+    
+    # Try to find separate date and time portions
+    date_match = re.search(r'(\d{1,2}-\d{1,2}-\d{4})', datetime_str)
+    time_match = re.search(r'(\d{1,2}:\d{2}(?:AM|PM)?)', datetime_str)
+    
+    date = date_match.group(1) if date_match else ""
+    time = time_match.group(1) if time_match else ""
+    
+    if date and time:
+        return date, time
+    elif date:
+        return date, ""
+    
+    return datetime_str, ""
+
+def extract_device_info(storage_str):
+    """Extract device info parts from a string like 'Make/Model/Size/SerialNo'"""
+    parts = storage_str.split('/')
+    
+    make = parts[0] if len(parts) > 0 else ""
+    model = parts[1] if len(parts) > 1 else ""
+    size = parts[2] if len(parts) > 2 else ""
+    serial_no = parts[3] if len(parts) > 3 else ""
+    
+    return make, model, size, serial_no
+
+def generate_digital_evidence_form(data, timestamp):
+    """Generate digital evidence form HTML from the parsed data"""
+    template_path = os.path.join('..', '..', 'reports', 'Reports html', 'digital_evidence_form.html')
+    with open(template_path, 'r') as f:
+        html_content = f.read()
+    
+    # Extract all the needed data
+    authorized_officer = data.get("Authorized Officer", "")
+    case_name = data.get("Case Name / No", "")
+    assessee_name = data.get("Name of Assessee / Party", "")
+    premise_address = data.get("Premise Address", "")
+    examiner_name = data.get("Examiner's Name and Details", "")
+    forensic_examiner = data.get("Digital Forensic Examiner", "")
+    
+    # Handle dates and times
+    start_date, start_time = extract_date_time(data.get("Start Date & Time", ""))
+    end_date, end_time = extract_date_time(data.get("End Date & Time", ""))
+    
+    # Device information
+    storage_master = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
+    make, model, size, serial_no = extract_device_info(storage_master)
+    
+    # RAM Collection
+    ram_collected = data.get("Volatile Memory / RAM Collected (Yes/No)", "")
+    shutdown_type = data.get("Shut Down Type (Normal/Power Pulled/Battery Removed/N/A)", "").lower()
+    
+    # Basic information
+    html_content = html_content.replace('<td colspan="4">Name of The Authorized Officer:</td>', 
+                                      f'<td colspan="4">Name of The Authorized Officer: {authorized_officer}</td>')
+    html_content = html_content.replace('<td colspan="4">Case Name:</td>', 
+                                      f'<td colspan="4">Case Name: {case_name}</td>')
+    html_content = html_content.replace('<td colspan="4">Name of the Assessee:</td>', 
+                                      f'<td colspan="4">Name of the Assessee: {assessee_name}</td>')
+    html_content = html_content.replace('<td colspan="2" rowspan="2" style="width: 50%; vertical-align: top;">Premise Address:</td>', 
+                                      f'<td colspan="2" rowspan="2" style="width: 50%; vertical-align: top;">Premise Address: {premise_address}</td>')
+    html_content = html_content.replace('<td colspan="4">Examiner\'s Name and Details : </td>', 
+                                      f'<td colspan="4">Examiner\'s Name and Details : {examiner_name}</td>')
+
+    # Date and time information - use precise tag replacement
+    html_content = html_content.replace('<td style="width: 25%;">Start Date:</td>', 
+                                      f'<td style="width: 25%;">Start Date: {start_date}</td>')
+    html_content = html_content.replace('<td style="width: 25%;">Start Time:</td>', 
+                                      f'<td style="width: 25%;">Start Time: {start_time}</td>')
+    html_content = html_content.replace('<td style="width: 25%;">End Date:</td>', 
+                                      f'<td style="width: 25%;">End Date: {end_date}</td>')
+    html_content = html_content.replace('<td style="width: 25%;">End Time:</td>', 
+                                      f'<td style="width: 25%;">End Time: {end_time}</td>')
+    
+    # For templates that already have spaces in the tags
+    html_content = html_content.replace('<td style="width: 25%;">Start Date: </td>', 
+                                      f'<td style="width: 25%;">Start Date: {start_date}</td>')
+    html_content = html_content.replace('<td style="width: 25%;">Start Time: </td>', 
+                                      f'<td style="width: 25%;">Start Time: {start_time}</td>')
+    html_content = html_content.replace('<td style="width: 25%;">End Date: </td>', 
+                                      f'<td style="width: 25%;">End Date: {end_date}</td>')
+    html_content = html_content.replace('<td style="width: 25%;">End Time: </td>', 
+                                      f'<td style="width: 25%;">End Time: {end_time}</td>')
+
+    # Device Information
+    html_content = html_content.replace('<td>Make :</td>', f'<td>Make: {make}</td>')
+    html_content = html_content.replace('<td colspan="2">Drive Model:</td>', f'<td colspan="2">Drive Model: {model}</td>')
+    html_content = html_content.replace('<td>Drive SN:</td>', f'<td>Drive SN: {serial_no}</td>')
+    html_content = html_content.replace('<td colspan="2">Size:</td>', f'<td colspan="2">Size: {size}</td>')
+    
+    # RAM Collection
+    html_content = html_content.replace('<td colspan="4">Whether Volatile Memory / RAM Memory was collected : </td>', 
+                                     f'<td colspan="4">Whether Volatile Memory / RAM Memory was collected : {ram_collected}</td>')
+    
+    # Shutdown Type
+    html_content = html_content.replace('<td class="row-header">Shut Down Type</td>', 
+                                     f'<td class="row-header">Shut Down Type: {shutdown_type}</td>')
+    
+    # Device Type - Handle radio buttons
+    device_type = data.get("Device Type (Laptop/Desktop/Server/Other)", "").lower()
+    if "laptop" in device_type:
+        html_content = html_content.replace('id="laptop" name="device" value="laptop">', 
+                                         'id="laptop" name="device" value="laptop" checked>')
+    elif "desktop" in device_type:
+        html_content = html_content.replace('id="desktop" name="device" value="desktop">', 
+                                         'id="desktop" name="device" value="desktop" checked>')
+    elif "server" in device_type:
+        html_content = html_content.replace('id="server" name="device" value="server">', 
+                                         'id="server" name="device" value="server" checked>')
+    elif "file" in device_type or "folder" in device_type:
+        html_content = html_content.replace('id="file-folder" name="device" value="file-folder">', 
+                                         'id="file-folder" name="device" value="file-folder" checked>')
+    elif "other" in device_type:
+        html_content = html_content.replace('id="others" name="device" value="others">', 
+                                         'id="others" name="device" value="others" checked>')
+
+    # Device Status - Handle radio buttons
+    device_status = data.get("Device Status at Seizure (On/Off/Sleep)", "").lower()
+    if "on" in device_status:
+        html_content = html_content.replace('id="on" name="power" value="on">', 
+                                         'id="on" name="power" value="on" checked>')
+    elif "off" in device_status:
+        html_content = html_content.replace('id="off" name="power" value="off">', 
+                                         'id="off" name="power" value="off" checked>')
+    elif "sleep" in device_status or "hibernate" in device_status:
+        html_content = html_content.replace('id="hibernate" name="power" value="hibernate">', 
+                                         'id="hibernate" name="power" value="hibernate" checked>')
+    
+    # Screen visible information
+    screen_visible = data.get("Screen Visible (if ON) - What was visible on the screen?", "")
+    html_content = html_content.replace('<td colspan="3" style="border-top: none;"></td>', 
+                                     f'<td colspan="3" style="border-top: none;">{screen_visible}</td>')
+    
+    # Shutdown Type radio buttons
+    if "normal" in shutdown_type:
+        html_content = html_content.replace('id="normal" name="shutdown" value="normal">', 
+                                         'id="normal" name="shutdown" value="normal" checked>')
+    elif "power" in shutdown_type or "pull" in shutdown_type:
+        html_content = html_content.replace('id="power-plug" name="shutdown" value="power-plug">', 
+                                         'id="power-plug" name="shutdown" value="power-plug" checked>')
+    elif "battery" in shutdown_type:
+        html_content = html_content.replace('id="battery" name="shutdown" value="battery">', 
+                                         'id="battery" name="shutdown" value="battery" checked>')
+    elif "n/a" in shutdown_type or "na" in shutdown_type:
+        html_content = html_content.replace('id="na" name="shutdown" value="na">', 
+                                         'id="na" name="shutdown" value="na" checked>')
+    
+    # Media Encryption - Handle radio buttons
+    media_encrypted = data.get("Is the suspected media encrypted (Yes/No)", "").lower()
+    if "yes" in media_encrypted:
+        html_content = html_content.replace('id="yes-encrypt" name="encrypted" value="yes">', 
+                                         'id="yes-encrypt" name="encrypted" value="yes" checked>')
+        encryption_type = data.get("Type of encryption Software used", "")
+        html_content = html_content.replace('<td colspan="3">Type of encryption Software used:</td>', 
+                                         f'<td colspan="3">Type of encryption Software used: {encryption_type}</td>')
+    elif "no" in media_encrypted:
+        html_content = html_content.replace('id="no-encrypt" name="encrypted" value="no">', 
+                                         'id="no-encrypt" name="encrypted" value="no" checked>')
+    
+    # Hard Disk Handling - Handle radio buttons
+    disk_handling = data.get("Hard Disk Handling (Seizure/Forensic Previewing/Imaging/Backup)", "").lower()
+    if "seizure" in disk_handling:
+        html_content = html_content.replace('id="seizure" name="handling" value="seizure">', 
+                                         'id="seizure" name="handling" value="seizure" checked>')
+    elif "preview" in disk_handling:
+        html_content = html_content.replace('id="previewing" name="handling" value="previewing">', 
+                                         'id="previewing" name="handling" value="previewing" checked>')
+    elif "imaging" in disk_handling:
+        html_content = html_content.replace('id="imaging" name="handling" value="imaging">', 
+                                         'id="imaging" name="handling" value="imaging" checked>')
+    elif "backup" in disk_handling:
+        html_content = html_content.replace('id="backup" name="handling" value="backup">', 
+                                         'id="backup" name="handling" value="backup" checked>')
+    
+    # Imaging Software Details
+    imaging_software = data.get("Detail of imaging software / Version to be given", "")
+    html_content = html_content.replace('<td colspan="4">Detail of imaging software / Version to be given:</td>', 
+                                     f'<td colspan="4">Detail of imaging software / Version to be given: {imaging_software}</td>')
+    
+    # Hash Calculation - Handle radio buttons and algorithm
+    hash_calc = data.get("Is Hash Value Calculated (Yes/No)", "").lower()
+    if "yes" in hash_calc:
+        html_content = html_content.replace('id="yes-hash" name="hash" value="yes">', 
+                                         'id="yes-hash" name="hash" value="yes" checked>')
+        
+        # Algorithm selection
+        algorithm = data.get("Algorithm Used (MD5/SHA1/Others)", "").lower()
+        if "md5" in algorithm:
+            html_content = html_content.replace('id="md5" name="algorithm" value="md5">', 
+                                             'id="md5" name="algorithm" value="md5" checked>')
+        elif "sha1" in algorithm:
+            html_content = html_content.replace('id="sha1" name="algorithm" value="sha1">', 
+                                             'id="sha1" name="algorithm" value="sha1" checked>')
+        elif "other" in algorithm:
+            html_content = html_content.replace('id="others-alg" name="algorithm" value="others">', 
+                                             'id="others-alg" name="algorithm" value="others" checked>')
+    elif "no" in hash_calc:
+        html_content = html_content.replace('id="no-hash" name="hash" value="no">', 
+                                         'id="no-hash" name="hash" value="no" checked>')
+    
+    # Hash Values - only populate if available in data
+    md5_hash = data.get("MD5 hash value", "")
+    sha1_hash = data.get("SHA1 hash value", "")
+    if md5_hash:
+        html_content = html_content.replace('<td colspan="4">MD5 hash value :</td>', 
+                                         f'<td colspan="4">MD5 hash value : {md5_hash}</td>')
+    if sha1_hash:
+        html_content = html_content.replace('<td colspan="4">SHA1 hash value :</td>', 
+                                         f'<td colspan="4">SHA1 hash value : {sha1_hash}</td>')
+    
+    # Witness Signature - Handle radio buttons
+    witness_signature = data.get("Is Witness Signature Taken (Yes/No)", "").lower()
+    if "yes" in witness_signature:
+        html_content = html_content.replace('id="yes-witness" name="witness" value="yes">', 
+                                         'id="yes-witness" name="witness" value="yes" checked>')
+    elif "no" in witness_signature:
+        html_content = html_content.replace('id="no-witness" name="witness" value="no">', 
+                                         'id="no-witness" name="witness" value="no" checked>')
+    
+    # Witness Information
+    witness_name = data.get("Witness Name", "")
+    witness_father = data.get("Witness Father's Name", "")
+    html_content = html_content.replace('<td colspan="2" style="height: 60px;">Witness 1:</td>', 
+                                     f'<td colspan="2" style="height: 60px;">Witness 1: {witness_name}</td>')
+    html_content = html_content.replace('<td colspan="2">Witness 2:</td>', 
+                                     f'<td colspan="2">Witness 2: {witness_father}</td>')
+    
+    # Hard disk replacement radio button - only set if we have data about it
+    disk_replaced = data.get("Is the hard disk replaced back", "").lower()
+    replacement_date = ""
+    replacement_time = ""
+    
+    if "yes" in disk_replaced:
+        html_content = html_content.replace('id="yes-replaced" name="replaced" value="yes">', 
+                                         'id="yes-replaced" name="replaced" value="yes" checked>')
+        # Only populate date/time if we have specific replacement data
+        replacement_date = data.get("Hard disk replacement date", "")
+        replacement_time = data.get("Hard disk replacement time", "")
+    elif "no" in disk_replaced:
+        html_content = html_content.replace('id="no-replaced" name="replaced" value="no">', 
+                                         'id="no-replaced" name="replaced" value="no" checked>')
+    elif "na" in disk_replaced or "n/a" in disk_replaced:
+        html_content = html_content.replace('id="na-replaced" name="replaced" value="na">', 
+                                         'id="na-replaced" name="replaced" value="na" checked>')
+    
+    # Hard disk replacement date and time - only populate if we have actual replacement data
+    html_content = html_content.replace('<td>Date:</td>', f'<td>Date: {replacement_date}</td>')
+    html_content = html_content.replace('<td>Time:</td>', f'<td>Time: {replacement_time}</td>')
+    
+    # Working Copy Details - Extract the working copy details
+    storage_working = data.get("Storage Working Copy Make/Model/Size/Serial No", "")
+    working_make, working_model, working_size, working_serial = extract_device_info(storage_working)
+    
+    # If working copy data is empty but master copy data exists, use master copy data for working copy
+    if not working_make and make:
+        working_make, working_model, working_size, working_serial = make, model, size, serial_no
+    
+    # Apply working copy details by directly targeting the working copy table
+    # Find the working copy table specifically (the second table after "Working Copy Details:")
+    working_copy_header = html_content.find('Working Copy Details:')
+    if working_copy_header != -1:
+        # Find the table that comes after "Working Copy Details:"
+        working_table_start = html_content.find('<table style="width: 100%; border: none;"', working_copy_header)
+        if working_table_start != -1:
+            working_table_end = html_content.find('</table>', working_table_start) + 8
+            working_table_section = html_content[working_table_start:working_table_end]
+            
+            # Replace the working copy values in this specific table
+            working_table_section = working_table_section.replace('Make:</td>', f'Make: {working_make}</td>')
+            working_table_section = working_table_section.replace('Model:</td>', f'Model: {working_model}</td>')
+            working_table_section = working_table_section.replace('Serial No:</td>', f'Serial No: {working_serial}</td>')
+            working_table_section = working_table_section.replace('Size:</td>', f'Size: {working_size}</td>')
+            
+            # Replace the original table with the updated one
+            html_content = html_content[:working_table_start] + working_table_section + html_content[working_table_end:]
+    
+    # Digital Forensic Examiner
+    html_content = html_content.replace('<td colspan="4" style="height: 60px;">Digital Forensic Examiner:</td>', 
+                                     f'<td colspan="4" style="height: 60px;">Digital Forensic Examiner: {forensic_examiner}</td>')
+    
+    # Create output path
+    output_path = os.path.join('..', '..', 'evidence', 'Final_Reports', f'FILLED_digital_evidence_form_{timestamp}.html')
+    
+    # Save the filled HTML form
+    with open(output_path, 'w') as f:
+        f.write(html_content)
+    
+    print(f"Digital Evidence Form generated successfully: {output_path}")
+    return output_path
+
+def generate_chain_of_custody_form(data, timestamp):
+    """Generate chain of custody form HTML from the parsed data"""
+    template_path = os.path.join('..', '..', 'reports', 'Reports html', 'chain_of_custody.html')
+    with open(template_path, 'r') as f:
+        html_content = f.read()
+    
+    # Extract all the needed data
+    authorized_officer = data.get("Authorized Officer", "")
+    case_name = data.get("Case Name / No", "")
+    premise_address = data.get("Premise Address", "")
+    
+    # Handle start date and time - combine them for this form
+    start_date, start_time = extract_date_time(data.get("Start Date & Time", ""))
+    start_datetime = f"{start_date} {start_time}" if start_date and start_time else start_date or start_time
+    
+    # Device information for master copy
+    storage_master = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
+    master_make, master_model, master_size, master_serial = extract_device_info(storage_master)
+    
+    # Device information for working copy
+    storage_working = data.get("Storage Working Copy Make/Model/Size/Serial No", "")
+    working_make, working_model, working_size, working_serial = extract_device_info(storage_working)
+    
+    # Basic case information
+    html_content = html_content.replace('<td colspan="4" style="font-weight: bold;">Name of the Case:</td>', 
+                                      f'<td colspan="4" style="font-weight: bold;">Name of the Case: {case_name}</td>')
+    html_content = html_content.replace('<td colspan="4" style="font-weight: bold;">Authorized Officer:</td>', 
+                                      f'<td colspan="4" style="font-weight: bold;">Authorized Officer: {authorized_officer}</td>')
+    
+    # Handle search date and time - use regex to find and replace more reliably
+    pattern = r'<td style="width: 50%;">Start Date and Time of Search:\s*</td>'
+    replacement = f'<td style="width: 50%;">Start Date and Time of Search: {start_datetime}</td>'
+    html_content = re.sub(pattern, replacement, html_content)
+    
+    # Handle premise address
+    html_content = html_content.replace('<td style="width: 50%;" colspan="3">Premise Address:</td>', 
+                                      f'<td style="width: 50%;" colspan="3">Premise Address: {premise_address}</td>')
+    
+    # Description - insert case name and date into the description
+    html_content = html_content.replace('the case of _________________', 
+                                      f'the case of {case_name}')
+    html_content = html_content.replace('<!-- real date for report -->', 
+                                      f'{start_date}')
+    
+    # Master Copy Details - Replace device info in the Master Copy section
+    master_copy_section = html_content.find('Master Copy Details')
+    if master_copy_section != -1:
+        device_info_start = html_content.find('Make:', master_copy_section)
+        if device_info_start != -1:
+            device_info_end = html_content.find('</td>', device_info_start)
+            if device_info_end != -1:
+                device_info_section = html_content[device_info_start:device_info_end]
+                master_details = f"""Make: {master_make}<br>
+Model: {master_model}<br>
+Size: {master_size}<br>
+Serial NO: {master_serial}"""
+                html_content = html_content.replace(device_info_section, master_details)
+    
+    # Working Copy Details - Replace device info in the Working Copy section
+    working_copy_section = html_content.find('Working Copy Details')
+    if working_copy_section != -1:
+        device_info_start = html_content.find('Make:', working_copy_section)
+        if device_info_start != -1:
+            device_info_end = html_content.find('</td>', device_info_start)
+            if device_info_end != -1:
+                device_info_section = html_content[device_info_start:device_info_end]
+                working_details = f"""Make: {working_make}<br>
+Model: {working_model}<br>
+Size: {working_size}<br>
+Serial NO: {working_serial}"""
+                html_content = html_content.replace(device_info_section, working_details)
+    
+    # Create output path
+    output_path = os.path.join('..', '..', 'evidence', 'Final_Reports', f'FILLED_chain_of_custody_{timestamp}.html')
+    
+    # Save the filled HTML form
+    with open(output_path, 'w') as f:
+        f.write(html_content)
+    
+    print(f"Chain of Custody Form generated successfully: {output_path}")
+    return output_path
+
+def generate_form_65B(data, timestamp):
+    """Generate Form 65B HTML from the parsed data"""
+    template_path = os.path.join('..', '..', 'reports', 'Reports html', 'form_65B.html')
+    with open(template_path, 'r') as f:
+        html_content = f.read()
+    
+    # Extract all the needed data
+    assessee_name = data.get("Name of Assessee / Party", "")
+    case_name = data.get("Case Name / No", "")
+    premise_address = data.get("Premise Address", "")
+    device_owner = data.get("Device Owner / In Possession of", "")
+    device_type = data.get("Device Type (Laptop/Desktop/Server/Other)", "")
+    
+    # Device information
+    storage_master = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
+    master_make, master_model, master_size, master_serial = extract_device_info(storage_master)
+    
+    storage_working = data.get("Storage Working Copy Make/Model/Size/Serial No", "")
+    working_make, working_model, working_size, working_serial = extract_device_info(storage_working)
+    
+    # If working copy data is empty but master copy data exists, use master copy data for working copy
+    if not working_make and master_make:
+        working_make, working_model, working_size, working_serial = master_make, master_model, master_size, master_serial
+    
+    # Fill the personal information blanks
+    html_content = html_content.replace('<span class="blank-line"></span> S/O <span class="blank-line"></span> residing/ working/ director at <span class="blank-line"></span>', 
+                                     f'<span class="blank-line">{assessee_name}</span> S/O <span class="blank-line"></span> residing/ working/ director at <span class="blank-line">{premise_address}</span>')
+    
+    # Fill the case name in the search proceedings section
+    html_content = html_content.replace('in the case of M/s. <span class="blank-line"></span>', 
+                                     f'in the case of M/s. <span class="blank-line">{case_name}</span>')
+    
+    # Fill the device evidence table - first row
+    if device_type or master_make or device_owner:
+        # Find the first empty table row and populate it
+        empty_row_pattern = r'<tr>\s*<td style="height: 50px;"></td>\s*<td></td>\s*<td></td>\s*</tr>'
+        device_details = f"{master_make} {master_model} ({master_size})" if master_make else ""
+        replacement_row = f'<tr><td style="height: 50px;">{device_type}</td><td>{device_details}</td><td>{device_owner}</td></tr>'
+        html_content = re.sub(empty_row_pattern, replacement_row, html_content, count=1)
+    
+    # Fill Master Copy Details and Working Copy Details using simple string replacement
+    # Since the template has consistent structure, we can use direct replacement
+    
+    # For Master Copy section - replace empty values
+    master_section_start = html_content.find('<div class="copy-header">Master Copy Details</div>')
+    working_section_start = html_content.find('<div class="copy-header">Working Copy Details</div>')
+    
+    if master_section_start != -1 and working_section_start != -1:
+        # Extract master copy section
+        master_section = html_content[master_section_start:working_section_start]
+        
+        # Replace values in master section (order: Make, Size, Model, Serial No.)
+        master_section = master_section.replace('<div class="copy-value"></div>', f'<div class="copy-value">{master_make}</div>', 1)
+        master_section = master_section.replace('<div class="copy-value"></div>', f'<div class="copy-value">{master_size}</div>', 1)
+        master_section = master_section.replace('<div class="copy-value"></div>', f'<div class="copy-value">{master_model}</div>', 1) 
+        master_section = master_section.replace('<div class="copy-value"></div>', f'<div class="copy-value">{master_serial}</div>', 1)
+        
+        # Extract working copy section (from working header to end of the copy-details div)
+        # Find the closing </div> of the copy-details section
+        copy_details_end = html_content.find('</div>', html_content.find('<div class="content"', working_section_start))
+        working_section = html_content[working_section_start:copy_details_end]
+        
+        # Replace values in working section (order: Make, Size, Model, Serial No.)
+        working_section = working_section.replace('<div class="copy-value"></div>', f'<div class="copy-value">{working_make}</div>', 1)
+        working_section = working_section.replace('<div class="copy-value"></div>', f'<div class="copy-value">{working_size}</div>', 1)
+        working_section = working_section.replace('<div class="copy-value"></div>', f'<div class="copy-value">{working_model}</div>', 1)
+        working_section = working_section.replace('<div class="copy-value"></div>', f'<div class="copy-value">{working_serial}</div>', 1)
+        
+        # Reconstruct the HTML
+        html_content = html_content[:master_section_start] + master_section + working_section + html_content[copy_details_end:]
+    
+    # Create output path
+    output_path = os.path.join('..', '..', 'evidence', 'Final_Reports', f'FILLED_form_65B_{timestamp}.html')
+    
+    # Save the filled HTML form
+    with open(output_path, 'w') as f:
+        f.write(html_content)
+    
+    print(f"Form 65B generated successfully: {output_path}")
+    return output_path
+
+def generate_job_form(data, timestamp):
+    """Generate Job Form HTML from the parsed data"""
+    template_path = os.path.join('..', '..', 'reports', 'Reports html', 'job_form.html')
+    with open(template_path, 'r') as f:
+        html_content = f.read()
+    
+    # Extract all the needed data
+    case_name = data.get("Case Name / No", "")
+    authorized_officer = data.get("Authorized Officer", "")
+    assessee_name = data.get("Name of Assessee / Party", "")
+    premise_address = data.get("Premise Address", "")
+    forensic_examiner = data.get("Digital Forensic Examiner", "")
+    working_hours = data.get("Working Hours", "")
+    
+    # Handle dates and times
+    start_date, start_time = extract_date_time(data.get("Start Date & Time", ""))
+    end_date, end_time = extract_date_time(data.get("End Date & Time", ""))
+    
+    # Device information
+    device_type = data.get("Device Type (Laptop/Desktop/Server/Other)", "")
+    device_owner = data.get("Device Owner / In Possession of", "")
+    storage_master = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
+    make, model, size, serial_no = extract_device_info(storage_master)
+    
+    # Hard disk handling type
+    disk_handling = data.get("Hard Disk Handling (Seizure/Forensic Previewing/Imaging/Backup)", "")
+    
+    # Hard disk capacity and counts
+    hdd_capacity = data.get("Hard Disk Capacity", "")
+    hdd_used = data.get("No. of HDD Used", "")
+    hdd_lab_systems = data.get("No. of HDD provided by Lab Systems (I) Pvt. Ltd.", "")
+    hdd_income_tax = data.get("No. of HDD provided by Income Tax Department", "")
+    
+    # Basic Information
+    html_content = html_content.replace('<td style="width: 25%; font-weight: bold;">Case Name/No</td>\n                <td colspan="3"></td>', 
+                                     f'<td style="width: 25%; font-weight: bold;">Case Name/No</td>\n                <td colspan="3">{case_name}</td>')
+    
+    # Date & Time In/Out
+    html_content = html_content.replace('<td style="width: 25%; font-weight: bold;">Date & Time in</td>\n                <td style="width: 25%;"></td>', 
+                                     f'<td style="width: 25%; font-weight: bold;">Date & Time in</td>\n                <td style="width: 25%;">{start_date} {start_time}</td>')
+    html_content = html_content.replace('<td style="width: 25%; font-weight: bold;">Date & Time Out</td>\n                <td style="width: 25%;"></td>', 
+                                     f'<td style="width: 25%; font-weight: bold;">Date & Time Out</td>\n                <td style="width: 25%;">{end_date} {end_time}</td>')
+    
+    # Authorized Officer
+    html_content = html_content.replace('<td style="font-weight: bold;">Authorised Officer</td>\n                <td colspan="3"></td>', 
+                                     f'<td style="font-weight: bold;">Authorised Officer</td>\n                <td colspan="3">{authorized_officer}</td>')
+    
+    # Name of the Party
+    html_content = html_content.replace('<td style="font-weight: bold;">Name of the Party</td>\n                <td colspan="3"></td>', 
+                                     f'<td style="font-weight: bold;">Name of the Party</td>\n                <td colspan="3">{assessee_name}</td>')
+    
+    # Premises Address
+    html_content = html_content.replace('<td style="font-weight: bold;">Premises Address</td>\n                <td colspan="3"></td>', 
+                                     f'<td style="font-weight: bold;">Premises Address</td>\n                <td colspan="3">{premise_address}</td>')
+    
+    # Forensic Works Performed - Check radio buttons based on selected works
+    forensic_works = data.get("Forensic Works Performed", "")
+    if forensic_works:
+        forensic_works_lower = forensic_works.lower()
+        
+        # Map the forensic works to radio buttons
+        if "data acquisition" in forensic_works_lower:
+            html_content = html_content.replace('<input type="radio" name="data_acquisition">', 
+                                             '<input type="radio" name="data_acquisition" checked>')
+        if "data extraction" in forensic_works_lower:
+            html_content = html_content.replace('<input type="radio" name="data_extraction">', 
+                                             '<input type="radio" name="data_extraction" checked>')
+        if "data analysis" in forensic_works_lower:
+            html_content = html_content.replace('<input type="radio" name="data_analysis">', 
+                                             '<input type="radio" name="data_analysis" checked>')
+        if "data duplication" in forensic_works_lower:
+            html_content = html_content.replace('<input type="radio" name="data_duplication">', 
+                                             '<input type="radio" name="data_duplication" checked>')
+        if "data raw backup" in forensic_works_lower:
+            html_content = html_content.replace('<input type="radio" name="data_raw_backup">', 
+                                             '<input type="radio" name="data_raw_backup" checked>')
+        if "email backup" in forensic_works_lower:
+            html_content = html_content.replace('<input type="radio" name="email_backup">', 
+                                             '<input type="radio" name="email_backup" checked>')
+        if "cloud acquisition" in forensic_works_lower:
+            html_content = html_content.replace('<input type="radio" name="cloud_acquisition">', 
+                                             '<input type="radio" name="cloud_acquisition" checked>')
+        if "other works" in forensic_works_lower:
+            html_content = html_content.replace('<input type="radio" name="other_works">', 
+                                             '<input type="radio" name="other_works" checked>')
+    else:
+        # Fallback to disk handling if forensic works not specified
+        if disk_handling:
+            disk_handling_lower = disk_handling.lower()
+            if "imaging" in disk_handling_lower or "acquisition" in disk_handling_lower:
+                html_content = html_content.replace('<input type="radio" name="data_acquisition">', 
+                                                 '<input type="radio" name="data_acquisition" checked>')
+            if "backup" in disk_handling_lower:
+                html_content = html_content.replace('<input type="radio" name="data_raw_backup">', 
+                                                 '<input type="radio" name="data_raw_backup" checked>')
+            if "preview" in disk_handling_lower or "analysis" in disk_handling_lower:
+                html_content = html_content.replace('<input type="radio" name="data_analysis">', 
+                                                 '<input type="radio" name="data_analysis" checked>')
+    
+    # Item Details Table - Fill first row with device information
+    if device_type or make or device_owner:
+        device_details = f"{make} {model} ({size})" if make else ""
+        action_taken = disk_handling if disk_handling else ""
+        
+        # Replace first empty row in Item Details table
+        empty_row_pattern = r'<tr>\s*<td style="height: 35px;"></td>\s*<td></td>\s*<td></td>\s*<td></td>\s*</tr>'
+        replacement_row = f'<tr><td style="height: 35px;">1</td><td>{device_type}</td><td>{device_details}</td><td>{action_taken}</td></tr>'
+        html_content = re.sub(empty_row_pattern, replacement_row, html_content, count=1)
+    
+    # Hard Disk Capacity Table - Fill based on capacity data
+    if hdd_capacity:
+        # Extract capacity value (e.g., "5TB" -> find row for appropriate TB)
+        if "1" in hdd_capacity and "tb" in hdd_capacity.lower():
+            html_content = html_content.replace('<td style="text-align: center;">1 TB</td>\n                <td></td>', 
+                                             f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>')
+        elif "2" in hdd_capacity and "tb" in hdd_capacity.lower():
+            html_content = html_content.replace('<td style="text-align: center;">2 TB</td>\n                <td></td>', 
+                                             f'<td style="text-align: center;">2 TB</td>\n                <td>{hdd_used}</td>')
+        elif "4" in hdd_capacity and "tb" in hdd_capacity.lower():
+            html_content = html_content.replace('<td style="text-align: center;">4 TB</td>\n                <td></td>', 
+                                             f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>')
+        else:
+            # Default to first row if capacity doesn't match exactly
+            html_content = html_content.replace('<td style="text-align: center;">1 TB</td>\n                <td></td>', 
+                                             f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>')
+    
+    # Fill HDD provider information - simplified approach
+    if hdd_lab_systems and hdd_capacity:
+        # Find and replace the Lab Systems column for the specific TB row
+        if "2" in hdd_capacity and "tb" in hdd_capacity.lower():
+            # For 2TB row, replace the third column (Lab Systems column)
+            html_content = html_content.replace('<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td></td>', 
+                                             f'<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td>{hdd_lab_systems}</td>')
+        elif "1" in hdd_capacity and "tb" in hdd_capacity.lower():
+            html_content = html_content.replace(f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>', 
+                                             f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>')
+        elif "4" in hdd_capacity and "tb" in hdd_capacity.lower():
+            html_content = html_content.replace(f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>', 
+                                             f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>')
+    
+    if hdd_income_tax and hdd_capacity:
+        # Find and replace the Income Tax column for the specific TB row
+        if "2" in hdd_capacity and "tb" in hdd_capacity.lower():
+            # For 2TB row, replace the fourth column (Income Tax column)
+            if hdd_lab_systems:
+                html_content = html_content.replace(f'<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td>{hdd_lab_systems}</td>\n                <td></td>', 
+                                                 f'<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>')
+            else:
+                html_content = html_content.replace('<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td></td>\n                <td></td>', 
+                                                 f'<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td></td>\n                <td>{hdd_income_tax}</td>')
+        elif "1" in hdd_capacity and "tb" in hdd_capacity.lower():
+            if hdd_lab_systems:
+                html_content = html_content.replace(f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td></td>', 
+                                                 f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>')
+            else:
+                html_content = html_content.replace(f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>\n                <td></td>', 
+                                                 f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>\n                <td>{hdd_income_tax}</td>')
+        elif "4" in hdd_capacity and "tb" in hdd_capacity.lower():
+            if hdd_lab_systems:
+                html_content = html_content.replace(f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td></td>', 
+                                                 f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>')
+            else:
+                html_content = html_content.replace(f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>\n                <td></td>', 
+                                                 f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>\n                <td>{hdd_income_tax}</td>')
+    
+    # Total Hard Disk Used
+    if hdd_used:
+        html_content = html_content.replace('<td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>\n                <td></td>', 
+                                         f'<td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>\n                <td>{hdd_used}</td>')
+    
+    # Working Hours Table - Fill forensic examiner info
+    examiner1_name = data.get("Digital Forensic Examiner 1 Name", "") or forensic_examiner
+    examiner1_hours = data.get("Digital Forensic Examiner 1 Working Hours", "")
+    examiner2_name = data.get("Digital Forensic Examiner 2 Name", "")
+    examiner2_hours = data.get("Digital Forensic Examiner 2 Working Hours", "")
+    overall_hours = data.get("Overall Working Hours", "") or working_hours
+    
+    # Fill first examiner
+    if examiner1_name:
+        html_content = html_content.replace('<td style="text-align: center;">1.</td>\n                <td style="height: 35px;"></td>\n                <td></td>', 
+                                         f'<td style="text-align: center;">1.</td>\n                <td style="height: 35px;">{examiner1_name}</td>\n                <td>{examiner1_hours}</td>')
+    
+    # Fill second examiner if exists
+    if examiner2_name:
+        html_content = html_content.replace('<td style="text-align: center;">2.</td>\n                <td style="height: 35px;"></td>\n                <td></td>', 
+                                         f'<td style="text-align: center;">2.</td>\n                <td style="height: 35px;">{examiner2_name}</td>\n                <td>{examiner2_hours}</td>')
+    
+    # Fill overall working hours
+    if overall_hours:
+        html_content = html_content.replace('<td style="text-align: center; font-weight: bold;">Overall Working Hours</td>\n                <td></td>', 
+                                         f'<td style="text-align: center; font-weight: bold;">Overall Working Hours</td>\n                <td>{overall_hours}</td>')
+    
+    # Signature Section - Leave empty for manual completion
+    # Lead Forensic Examiner and Authorised Officer signatures will remain blank
+    
+    # Create output path
+    output_path = os.path.join('..', '..', 'evidence', 'Final_Reports', f'FILLED_job_form_{timestamp}.html')
+    
+    # Save the filled HTML form
+    with open(output_path, 'w') as f:
+        f.write(html_content)
+    
+    print(f"Job Form generated successfully: {output_path}")
+    return output_path
+
+def generate_master_copy(data, timestamp):
+    """Generate Master Copy HTML from the parsed data"""
+    template_path = os.path.join('..', '..', 'reports', 'Reports html', 'master_copy.html')
+    
+    # Read the template file
+    with open(template_path, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+    
+    # Extract data from questions
+    case_name = data.get("Case Name / No", "")
+    premise_address = data.get("Premise Address", "")
+    search_date = data.get("Search Date (Example: 12-09-2025)", "")
+    # Clean up search date - remove example text
+    if "Example:" in search_date:
+        search_date = search_date.split(")")[-1].strip()
+    elif search_date == "":
+        search_date = data.get("Search Date", "")
+    
+    assessee_name = data.get("Name of Assessee / Party", "")
+    device_type = data.get("Device Type (Laptop/Desktop/Server/Other)", "")
+    authorized_officer = data.get("Authorized Officer", "")
+    witness_name = data.get("Witness Name", "")
+    
+    # Extract HDD serial number from storage info
+    storage_master = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
+    make, model, size, serial_no = extract_device_info(storage_master)
+    
+    # Fill the header with HDD Serial No
+    if serial_no:
+        html_content = html_content.replace('<div>S/N: HDD Serial No.</div>', 
+                                         f'<div>S/N: {serial_no}</div>')
+    
+    # Fill case information
+    if case_name:
+        html_content = html_content.replace('<p><strong>Case Name:</strong> <!-- IF Company – Company Name, If House – Main Person Name --></p>', 
+                                         f'<p><strong>Case Name:</strong> {case_name}</p>')
+    
+    if premise_address:
+        html_content = html_content.replace('<p><strong>Address:</strong> <!--Complete address of the company or house where the search is taking place.--></p>', 
+                                         f'<p><strong>Address:</strong> {premise_address}</p>')
+    
+    if search_date:
+        html_content = html_content.replace('<p><strong>Search Date:</strong> <!--06.10.2021 --></p>', 
+                                         f'<p><strong>Search Date:</strong> {search_date}</p>')
+    
+    # Create device description
+    device_description = ""
+    if make and model and size:
+        device_description = f"This {make} {model} {size} External HDD Contains Below mentioned data."
+    elif size:
+        device_description = f"This {size} External HDD Contains Below mentioned data."
+    else:
+        device_description = "This External HDD Contains Below mentioned data."
+    
+    html_content = html_content.replace('<p><!--This Seagate One Touch 1TB External HDD Contains Below mentioned data. --></p>', 
+                                     f'<p>{device_description}</p>')
+    
+    # Fill items list - Keep empty for manual completion
+    # Items will be filled manually during the investigation process
+    
+    # Clean up all item placeholders to leave them empty
+    item_placeholders = [
+        '<!-- Assessee_Name_Laptop_01 -->',
+        '<!--Assessee_Name_Laptop_02 -->',
+        '<!--Assessee_Name_Apple_Mobile -->',
+        '<!--Assessee_Name_Samsung_Mobile -->',
+        '<!--assessee@gmail.com -->'
+    ]
+    
+    for placeholder in item_placeholders:
+        # Replace placeholders with empty content but keep the list structure
+        html_content = html_content.replace(f'<li>{placeholder}</li>', '<li></li>')
+    
+    # Clean up any extra newlines that might be left
+    html_content = html_content.replace('\n                \n                \n            </ol>', '\n            </ol>')
+    
+    # Signature sections remain empty for manual completion as per requirement
+    # Assessee, AO, Witness 1, Witness 2 signatures will be filled manually
+    
+    # Create output path
+    output_path = os.path.join('..', '..', 'evidence', 'Final_Reports', f'FILLED_master_copy_{timestamp}.html')
+    
+    # Save the filled HTML form
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    print(f"Master Copy generated successfully: {output_path}")
+    return output_path
+
+def generate_all_templates(data, timestamp):
+    """Generate all available templates"""
+    templates = [
+        ('digital_evidence_form.html', generate_digital_evidence_form),
+        ('chain_of_custody.html', generate_chain_of_custody_form),
+        ('form_65B.html', generate_form_65B),
+        ('job_form.html', generate_job_form),
+        ('master_copy.html', generate_master_copy),
+        # Add more templates as needed
+    ]
+    
+    generated_files = []
+    
+    for template_name, generator_func in templates:
+        template_path = os.path.join('..', '..', 'reports', 'Reports html', template_name)
+        if os.path.exists(template_path):
+            try:
+                output_path = generator_func(data, timestamp)
+                generated_files.append(output_path)
+            except Exception as e:
+                print(f"Error generating {template_name}: {str(e)}")
+        else:
+            print(f"Template not found: {template_name}")
+    
+    return generated_files
 
 def main():
-    """Main function to run the report generator"""
-    print("\nEDITH-Automater HTML Report Generator")
-    print("="*50)
+    """Main function to generate all forms"""
+    # Read the questions file
+    content = read_questions_file()
+    if not content:
+        return
     
-    # Initialize report generator
-    generator = SimpleReportGenerator()
+    # Parse the data
+    data = parse_questions_data(content)
+    if not data:
+        print("Failed to parse data from questions file.")
+        return
     
-    # Generate reports
-    generated_htmls = generator.generate_all_reports()
+    # Generate timestamp for filenames
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # Print summary
-    generator.print_summary(generated_htmls)
+    # Create output directory if it doesn't exist
+    output_dir = os.path.join('..', '..', 'evidence', 'Final_Reports')
+    os.makedirs(output_dir, exist_ok=True)
     
-    if generated_htmls:
-        print("🎉 HTML report generation completed successfully!")
-    else:
-        print("⚠️ HTML report generation completed with errors.")
-
+    # Generate all templates
+    generated_files = generate_all_templates(data, timestamp)
+    
+    print(f"Form generation complete. Generated {len(generated_files)} files:")
+    for file_path in generated_files:
+        print(f"  - {os.path.basename(file_path)}")
 
 if __name__ == "__main__":
     main()

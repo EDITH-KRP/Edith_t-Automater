@@ -1,29 +1,38 @@
 Digital Evidence Collection & Chain of Custody Form
 ============================================================
 
-Case Name / No: 505
+Case Name / No: 555
 Authorized Officer: Adhi
-Name of Assessee / Party: you
-Premise Address: bengalore
-Start Date & Time: 12-09-2025 2:00PM
-End Date & Time: 13-09-2025 2:00AM
-Search Date: 12-09-2025
-Examiner�s Name and Details: Somebody
-Digital Forensic Examiner: anybody
-Working Hours: 13hr
-Device Owner / In Possession of: huska bhap ka hai
+Name of Assessee / Party: Kumar
+Premise Address: Bangalore
+Start Date & Time (Example: 12-09-2025 2:00PM): 12-09-2025 2:00PM
+End Date & Time (Example: 13-09-2025 2:00AM): 13-09-2025 2:00AM
+Search Date (Example: 12-09-2025): 12-09-2025
+Examiner's Name and Details: Abhi S Kali
+Digital Forensic Examiner: Kushal
+Digital Forensic Examiner 1 Name: Kushal
+Digital Forensic Examiner 1 Working Hours: 8hr
+Digital Forensic Examiner 2 Name: Rahul
+Digital Forensic Examiner 2 Working Hours: 7hr
+Overall Working Hours: 15hr
+Working Hours: 15hr
+Device Owner / In Possession of: Police
 Device Type (Laptop/Desktop/Server/Other): Laptop
-Device Status at Seizure (On/Off/Sleep): sleep
-Volatile Memory / RAM Collected (Yes/No): yes
-Shut Down Type (Normal/Power Pulled/Battery Removed/N/A): normal
+Device Status at Seizure (On/Off/Sleep): On
+Screen Visible (if ON) - What was visible on the screen?: GTA 5 gamming and the play was in the pub
+Volatile Memory / RAM Collected (Yes/No): Yes
+Shut Down Type (Normal/Power Pulled/Battery Removed/N/A): Power Pulled
+Is the suspected media encrypted (Yes/No): No
+Hard Disk Handling (Seizure/Forensic Previewing/Imaging/Backup): Imaging
+Forensic Works Performed: Data Acquisition, Data Extraction, Data Analysis, Data Duplication, Data Raw Backup
 Is Hash Value Calculated (Yes/No): Yes
-Algorithm Used (MD5/SHA1/Others): MD5
-Storage Master Copy Make/Model/Size/Serial No: Asus/787465675785884848/5TB/8867348756734656793469593465
-Storage Working Copy Make/Model/Size/Serial No: Asus/787465675785884848/5TB/8867348756734656793469593465
-Hard Disk Capacity: 5TB
-No. of HDD Used: 2
-No. of HDD provided by Lab Systems (I) Pvt. Ltd.: ingo lte
+Algorithm Used (MD5/SHA1/Others): SHA1
+Storage Master Copy Make/Model/Size/Serial No: Asus/X550/5TB/ABC123456789
+Storage Working Copy Make/Model/Size/Serial No: Asus/X550/5TB/ABC123456789
+Hard Disk Capacity: 2 TB
+No. of HDD Used (Example: 1, 2, 3): 4
+No. of HDD provided by Lab Systems (I) Pvt. Ltd.: sindh limited
 No. of HDD provided by Income Tax Department: 2
-Is Witness Signature Taken (Yes/No): yes
-Witness Name: bhap ka beta
-Witness Father�s Name: bete ka bhap
+Is Witness Signature Taken (Yes/No): Yes
+Witness Name: Shanker
+Witness Father's Name: Shanker's father
