@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Form</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 0;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .page {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 20px auto;
+            background-color: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            position: relative;
+            box-sizing: border-box;
+            border: 1px solid #000;
+            padding: 15mm;
+        }
+        
+        @media print {
+            body {
+                background: none;
+            }
+            .page {
+                margin: 0;
+                border: none;
+                box-shadow: none;
+            }
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            vertical-align: middle;
+            font-size: 11pt;
+        }
+        .header-row td {
+            font-weight: bold;
+        }
+        /* Custom radio button styling */
+        .custom-radio {
+            position: relative;
+            display: inline-block;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        .custom-radio input {
+            position: absolute;
+            opacity: 0;
+            cursor: pointer;
+        }
+        
+        .checkmark {
+            position: relative;
+            display: inline-block;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            border: 1px solid #000;
+            background-color: #fff;
+        }
+        
+        .custom-radio input:checked ~ .checkmark:after {
+            content: "";
+            position: absolute;
+            display: block;
+            top: 3px;
+            left: 3px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #000;
+        }
+        
+        label {
+            display: inline-flex;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 11pt;
+            cursor: pointer;
+        }
+        
+        .radio-container {
+            padding: 8px;
+            vertical-align: middle;
+        }
+        .forensic-works {
+            text-align: center;
+            vertical-align: middle;
+            font-weight: bold;
+            padding: 10px 5px;
+            line-height: 1.3;
+        }
+        .watermark {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0.05;
+            font-size: 80pt;
+            transform: rotate(-45deg);
+            z-index: -1;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="watermark">INCOMETAX-INV</div>
+        
+        <!-- Title -->
+        <div style="text-align: center; font-weight: bold; font-size: 18pt; margin-bottom: 20px;">JOB FORM</div>
+        
+        <!-- Basic Info Table -->
+        <table>
+            <tr>
+                <td style="width: 25%; font-weight: bold;">Case Name/No</td>
+                <td colspan="3"></td>
+            </tr>
+            <tr>
+                <td style="width: 25%; font-weight: bold;">Date & Time in</td>
+                <td style="width: 25%;"></td>
+                <td style="width: 25%; font-weight: bold;">Date & Time Out</td>
+                <td style="width: 25%;"></td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">Authorised Officer</td>
+                <td colspan="3"></td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">Name of the Party</td>
+                <td colspan="3"></td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">Premises Address</td>
+                <td colspan="3"></td>
+            </tr>
+        </table>
+        
+        <!-- Forensic Works Table -->
+        <table>
+            <tr>
+                <td rowspan="2" class="forensic-works" style="width: 20%;">Forensic Works<br>Performed</td>
+                <td class="radio-container" style="width: 20%;">
+                    <label>
+                        <span class="custom-radio">
+                            <input type="radio" name="data_acquisition">
+                            <span class="checkmark"></span>
+                        </span>
+                        Data Acquisition
+                    </label>
+                </td>
+                <td class="radio-container" style="width: 20%;">
+                    <label>
+                        <span class="custom-radio">
+                            <input type="radio" name="data_extraction">
+                            <span class="checkmark"></span>
+                        </span>
+                        Data Extraction
+                    </label>
+                </td>
+                <td class="radio-container" style="width: 20%;">
+                    <label>
+                        <span class="custom-radio">
+                            <input type="radio" name="data_analysis">
+                            <span class="checkmark"></span>
+                        </span>
+                        Data Analysis
+                    </label>
+                </td>
+                <td class="radio-container" style="width: 20%;">
+                    <label>
+                        <span class="custom-radio">
+                            <input type="radio" name="data_duplication">
+                            <span class="checkmark"></span>
+                        </span>
+                        Data Duplication
+                    </label>
+                </td>
+            </tr>
+            <tr>
+                <td class="radio-container">
+                    <label>
+                        <span class="custom-radio">
+                            <input type="radio" name="data_raw_backup">
+                            <span class="checkmark"></span>
+                        </span>
+                        Data Raw Backup
+                    </label>
+                </td>
+                <td class="radio-container">
+                    <label>
+                        <span class="custom-radio">
+                            <input type="radio" name="email_backup">
+                            <span class="checkmark"></span>
+                        </span>
+                        Email Backup
+                    </label>
+                </td>
+                <td class="radio-container">
+                    <label>
+                        <span class="custom-radio">
+                            <input type="radio" name="cloud_acquisition">
+                            <span class="checkmark"></span>
+                        </span>
+                        Cloud Acquisition
+                    </label>
+                </td>
+                <td class="radio-container">
+                    <label>
+                        <span class="custom-radio">
+                            <input type="radio" name="other_works">
+                            <span class="checkmark"></span>
+                        </span>
+                        Other Works
+                    </label>
+                </td>
+            </tr>
+        </table>
+        
+        <!-- Item Details Table -->
+        <table>
+            <tr>
+                <td style="width: 8%; font-weight: bold; text-align: center;">S. No.</td>
+                <td style="width: 22%; font-weight: bold; text-align: center;">Item Type</td>
+                <td style="width: 50%; font-weight: bold; text-align: center;">Details of the Item</td>
+                <td style="width: 20%; font-weight: bold; text-align: center;">Action Taken</td>
+            </tr>
+            <tr>
+                <td style="height: 35px;"></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td style="height: 35px;"></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td style="height: 35px;"></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td style="height: 35px;"></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td style="height: 35px;"></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+        </table>
+        
+        <!-- Hard Disk Capacity Table -->
+        <table>
+            <tr>
+                <td style="width: 22%; font-weight: bold; text-align: center;">Hard Disk Capacity</td>
+                <td style="width: 18%; font-weight: bold; text-align: center;">No. of HDD Used</td>
+                <td style="width: 30%; font-weight: bold; text-align: center;">No. of HDD provided by<br>Lab Systems (I) Pvt. Ltd.</td>
+                <td style="width: 30%; font-weight: bold; text-align: center;">No. of HDD provided by<br>Income Tax Department</td>
+            </tr>
+            <tr>
+                <td style="text-align: center;">1 TB</td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td style="text-align: center;">2 TB</td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td style="text-align: center;">4 TB</td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>
+                <td></td>
+                <td colspan="2"></td>
+            </tr>
+        </table>
+        
+        <!-- Working Hours Table -->
+        <table>
+            <tr>
+                <td style="width: 12%; font-weight: bold; text-align: center;">S. No.</td>
+                <td style="width: 58%; font-weight: bold; text-align: center;">Name of the Forensic Examiner</td>
+                <td style="width: 30%; font-weight: bold; text-align: center;">Working Hours: 13hr</td>
+            </tr>
+            <tr>
+                <td style="text-align: center;">1.</td>
+                <td style="height: 35px;"></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td style="text-align: center;">2.</td>
+                <td style="height: 35px;"></td>
+                <td></td>
+            </tr>
+            <tr>
+                <td></td>
+                <td style="text-align: center; font-weight: bold;">Overall Working Hours: 13hr</td>
+                <td></td>
+            </tr>
+        </table>
+        
+        <!-- Signature Section -->
+        <table style="margin-top: 30px;">
+            <tr>
+                <td style="width: 30%; font-weight: bold; text-align: center; padding: 10px;">Lead Forensic Examiner<br>Name & Signature</td>
+                <td style="width: 70%; height: 60px;"></td>
+            </tr>
+            <tr>
+                <td style="width: 30%; font-weight: bold; text-align: center; padding: 10px;">Authorised Officer Name<br>& Signature</td>
+                <td style="width: 70%; height: 60px;"></td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

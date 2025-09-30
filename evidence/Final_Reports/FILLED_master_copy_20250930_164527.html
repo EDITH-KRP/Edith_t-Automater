@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Copy</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 0;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .page {
+            width: 210mm;
+            height: 297mm;
+            margin: 0 auto;
+            background-color: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            position: relative;
+            box-sizing: border-box;
+            border: 1px solid #000;
+            padding: 20mm;
+            overflow: hidden;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        .title {
+            text-align: center;
+            font-weight: bold;
+            font-size: 24px;
+            margin: 10mm 0;
+            text-decoration: underline;
+        }
+        .case-info {
+            margin-bottom: 10mm;
+        }
+        .case-info p {
+            margin: 8px 0;
+            line-height: 1.5;
+        }
+        .case-info strong {
+            font-weight: bold;
+        }
+        .items {
+            margin-left: 5mm;
+            margin-bottom: 15mm;
+        }
+        .items p {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .items ol {
+            margin-top: 5px;
+            line-height: 1.6;
+        }
+        .items li {
+            margin-bottom: 5px;
+        }
+        .signatures {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15mm;
+        }
+        .signature-line {
+            width: 45%;
+        }
+        .signature-line p {
+            border-top: 1px solid black;
+            padding-top: 5px;
+            text-align: center;
+            font-weight: bold;
+        }
+        @media print {
+            body {
+                background: none;
+            }
+            .page {
+                box-shadow: none;
+                border: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="header">
+            <div>S/N: 8867348756734656793469593465</div>
+            <div>1(1)</div>
+        </div>
+        
+        <div class="title">MASTER COPY</div>
+        
+        <div class="case-info">
+            <p><strong>Case Name: 505</strong> <!-- IF Company – Company Name, If House – Main Person Name --></p>
+            <p><strong>Address:</strong> <!--Complete address of the company or house where the search is taking place.--></p>
+            <p><strong>Search Date: 12-09-2025</strong> <!--06.10.2021 --></p>
+            <p><!--This Seagate One Touch 1TB External HDD Contains Below mentioned data. --></p>
+        </div>
+        
+        <div class="items">
+            <p><strong>Items:</strong></p>
+            <ol>
+                <li><!-- Assessee_Name_Laptop_01 --></li>
+                <li><!--Assessee_Name_Laptop_02 --></li>
+                <li><!--Assessee_Name_Apple_Mobile --></li>
+                <li><!--Assessee_Name_Samsung_Mobile --></li>
+                <li><!--assessee@gmail.com --></li>
+            </ol>
+        </div>
+        
+        <div class="signatures">
+            <div class="signature-line">
+                <p>Assessee:</p>
+            </div>
+            <div class="signature-line">
+                <p>AO:</p>
+            </div>
+        </div>
+        
+        <div class="signatures">
+            <div class="signature-line">
+                <p>Witness 1:</p>
+            </div>
+            <div class="signature-line">
+                <p>Witness 2:</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

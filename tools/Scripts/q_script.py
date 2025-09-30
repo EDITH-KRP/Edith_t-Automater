@@ -45,23 +45,7 @@ def main():
     ask("Volatile Memory / RAM Collected (Yes/No)")
     ask("Shut Down Type (Normal/Power Pulled/Battery Removed/N/A)")
 
-    # Email
-    ask("Email Service Provider")
-    ask("Email ID")
-    ask("Software Used to Backup Email")
-    while True:
-        email_encrypted = input("Is Email Data Encrypted (Yes/No): ").strip()
-        if email_encrypted:
-            answers["Is Email Data Encrypted (Yes/No)"] = email_encrypted
-            break
-        else:
-            print("This field cannot be left empty. Please provide an answer.")
-
-    if email_encrypted.lower() == "yes":
-        ask("Encryption Software")
-
-    ask("Email Data Handling (Previewing/Imaging/Backup)")
-    ask("Imaging Software / Version")
+   
 
     # Integrity Verification
     while True:
@@ -74,8 +58,7 @@ def main():
 
     if hash_calc.lower() == "yes":
         ask("Algorithm Used (MD5/SHA1/Others)")
-        ask("MD5 Hash Value")
-        ask("SHA1 Hash Value")
+       
 
     # Storage Details
     ask("Storage Master Copy Make/Model/Size/Serial No")

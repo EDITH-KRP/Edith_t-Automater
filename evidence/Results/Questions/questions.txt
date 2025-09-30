@@ -1,0 +1,29 @@
+Digital Evidence Collection & Chain of Custody Form
+============================================================
+
+Case Name / No: 505
+Authorized Officer: Adhi
+Name of Assessee / Party: you
+Premise Address: bengalore
+Start Date & Time: 12-09-2025 2:00PM
+End Date & Time: 13-09-2025 2:00AM
+Search Date: 12-09-2025
+Examiner�s Name and Details: Somebody
+Digital Forensic Examiner: anybody
+Working Hours: 13hr
+Device Owner / In Possession of: huska bhap ka hai
+Device Type (Laptop/Desktop/Server/Other): Laptop
+Device Status at Seizure (On/Off/Sleep): sleep
+Volatile Memory / RAM Collected (Yes/No): yes
+Shut Down Type (Normal/Power Pulled/Battery Removed/N/A): normal
+Is Hash Value Calculated (Yes/No): Yes
+Algorithm Used (MD5/SHA1/Others): MD5
+Storage Master Copy Make/Model/Size/Serial No: Asus/787465675785884848/5TB/8867348756734656793469593465
+Storage Working Copy Make/Model/Size/Serial No: Asus/787465675785884848/5TB/8867348756734656793469593465
+Hard Disk Capacity: 5TB
+No. of HDD Used: 2
+No. of HDD provided by Lab Systems (I) Pvt. Ltd.: ingo lte
+No. of HDD provided by Income Tax Department: 2
+Is Witness Signature Taken (Yes/No): yes
+Witness Name: bhap ka beta
+Witness Father�s Name: bete ka bhap

@@ -1,0 +1,9 @@
+2025-09-30 15:46:21,947 - INFO - [SimpleReportGen] Starting HTML report generation process...
+2025-09-30 15:46:21,947 - INFO - [SimpleReportGen] Reading questions file: e:\Github-adhi982\Edith_t-Automater\evidence\Results\Questions\questions.txt
+2025-09-30 15:46:21,947 - INFO - [SimpleReportGen] Successfully parsed 34 fields from questions file
+2025-09-30 15:46:21,947 - INFO - [SimpleReportGen] Populating template: chain_of_custody.html
+2025-09-30 15:46:21,961 - INFO - [SimpleReportGen] Populating template: digital_evidence_form.html
+2025-09-30 15:46:21,962 - INFO - [SimpleReportGen] Populating template: email_digital_evidence_form.html
+2025-09-30 15:46:21,968 - INFO - [SimpleReportGen] Populating template: form_65B.html
+2025-09-30 15:46:22,046 - INFO - [SimpleReportGen] Populating template: job_form.html
+2025-09-30 15:46:22,051 - INFO - [SimpleReportGen] Populating template: master_copy.html
