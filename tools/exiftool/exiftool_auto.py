@@ -1,28 +1,19 @@
 #!/usr/bin/env python3
 """
 EDITH-Automater ExifTool Automated Module
-=========================================
 
-This automated module processes all files from the evidence directory
-and outputs results to the result directory without any user interaction.
+Processes files from evidence directory with advanced metadata extraction.
+Outputs JSON, CSV, HTML reports with file integrity verification.
 
-Input Directory: W:\\GCU\\Project\\Edith_t-Automater\\evidence
-Output Directory: W:\\GCU\\Project\\Edith_t-Automater\\result\\Exiftool_output
-
-Features:
-- Automatic batch processing of all evidence files
-- Enhanced metadata extraction using advanced ExifTool options
-- Multiple output formats (JSON, CSV, HTML)
-- File integrity verification with hashing
-- Forensic logging and audit trails
-- USB portable design with no external dependencies
+Usage:
+- python exiftool_auto.py                    # Normal run
+- python exiftool_auto.py --prompt           # Custom input directory
+- python exiftool_auto.py --config-only      # Show configuration
 
 Author: ADITHYA N T
-Version: 3.0 - Automated Edition
-Date: September 2025
+Version: 3.2 - Enhanced Portable Edition
 """
 
-import os
 import sys
 import json
 import csv
@@ -30,6 +21,7 @@ import html
 import logging
 import subprocess
 import hashlib
+import platform
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
@@ -37,44 +29,34 @@ import argparse
 
 
 class AutomatedExifTool:
-    """
-    Automated ExifTool for batch processing evidence files
-    """
+    """Automated ExifTool for batch processing evidence files"""
     
-    def __init__(self, case_id: str = None):
-        """
-        Initialize the automated ExifTool system
-        
-        Args:
-            case_id (str): Optional case identifier
-        """
+    def __init__(self, case_id: str = None, show_prompt: bool = False):
         self.case_id = case_id or f"AUTO_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        # Fixed directory paths as requested
-        self.evidence_dir = Path("W:/GCU/Project/Edith_t-Automater/evidence")
-        self.result_dir = Path("W:/GCU/Project/Edith_t-Automater/result/Exiftool_output")
         self.tool_dir = Path(__file__).parent
+        self.evidence_dir = (self.tool_dir / ".." / ".." / "evidence").resolve()
+        self.result_dir = (self.evidence_dir / ".." / "Results" / "Exiftool_output").resolve()
         
-        # Setup working directories
+        custom_input = self._prompt_for_input_directory() if show_prompt else None
+        if custom_input:
+            self.evidence_dir = custom_input
+        
         self.setup_directories()
-        
-        # Setup logging
         self.setup_logging()
-        
-        # Find ExifTool executable
         self.exiftool_path = self._find_exiftool_executable()
         
-        # Configuration
         self.config = {
             "advanced_extraction": True,
             "export_json": True,
             "export_csv": True,
             "export_html": True,
             "generate_hashes": True,
-            "timeout": 300
+            "timeout": 300,
+            "max_file_size_mb": 100,
+            "quick_mode": False
         }
         
-        # Results tracking
         self.processed_files = []
         self.failed_files = []
         self.total_metadata_entries = 0
@@ -84,48 +66,48 @@ class AutomatedExifTool:
         self.logger.info(f"Result directory: {self.result_dir}")
     
     def setup_directories(self):
-        """Setup required directories"""
-        # Create result directory structure - only metadata directory
         self.case_result_dir = self.result_dir / self.case_id
         self.output_dir = self.case_result_dir / "metadata"
         
-        # Only create case and metadata directories
         for directory in [self.case_result_dir, self.output_dir]:
             directory.mkdir(parents=True, exist_ok=True)
         
-        # Ensure evidence directory exists
         if not self.evidence_dir.exists():
             self.evidence_dir.mkdir(parents=True, exist_ok=True)
             print(f"Created evidence directory: {self.evidence_dir}")
     
     def setup_logging(self):
-        """Setup logging system - console only, no log files"""
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.StreamHandler(sys.stdout)
-            ]
+            handlers=[logging.StreamHandler(sys.stdout)]
         )
-        
         self.logger = logging.getLogger(f"AutoExifTool_{self.case_id}")
     
     def _find_exiftool_executable(self) -> str:
-        """Find ExifTool executable"""
+        # Platform-specific executable names
+        is_windows = platform.system().lower() == 'windows'
+        exe_name = "exiftool.exe" if is_windows else "exiftool"
+        
         possible_paths = [
-            self.tool_dir / "bin" / "exiftool.exe",
-            self.tool_dir / "exiftool.exe",
-            "exiftool.exe",
-            "exiftool"
+            self.tool_dir / "bin" / exe_name,
+            self.tool_dir / exe_name,
+            exe_name  # Will search in PATH
         ]
         
         for path in possible_paths:
             if Path(path).exists():
                 return str(path)
         
-        # Try system PATH
+        # Try system PATH - platform specific
         try:
-            result = subprocess.run(['where', 'exiftool'], capture_output=True, text=True, shell=True)
+            if is_windows:
+                result = subprocess.run(['where', 'exiftool'], capture_output=True, text=True, 
+                                      shell=True, encoding='utf-8', errors='ignore', timeout=10)
+            else:
+                result = subprocess.run(['which', 'exiftool'], capture_output=True, text=True, 
+                                      encoding='utf-8', errors='ignore', timeout=10)
+            
             if result.returncode == 0:
                 return result.stdout.strip().split('\n')[0]
         except:
@@ -133,8 +115,28 @@ class AutomatedExifTool:
         
         raise FileNotFoundError("ExifTool executable not found")
     
+    def _prompt_for_input_directory(self) -> Optional[Path]:
+        try:
+            print(f"\nCustom Input Directory (default: {self.evidence_dir})")
+            user_input = input("Enter path or press Enter for default: ").strip()
+            
+            if not user_input:
+                print("✓ Using default evidence directory")
+                return None
+            
+            custom_path = Path(user_input).resolve()
+            if custom_path.exists() and custom_path.is_dir():
+                print(f"✓ Custom input directory: {custom_path}")
+                return custom_path
+            else:
+                print(f"⚠️ Invalid path, using default")
+                return None
+                
+        except (KeyboardInterrupt, EOFError, Exception):
+            print("\n✓ Using default evidence directory")
+            return None
+    
     def scan_evidence_directory(self) -> List[Path]:
-        """Scan evidence directory for supported files"""
         supported_extensions = {
             '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.gif', '.webp',
             '.pdf', '.mp3', '.wav', '.flac', '.ogg', '.aac', '.m4a',
@@ -142,42 +144,46 @@ class AutomatedExifTool:
             '.xls', '.xlsx', '.ppt', '.pptx', '.txt'
         }
         
-        evidence_files = []
-        
         if not self.evidence_dir.exists():
             self.logger.warning(f"Evidence directory does not exist: {self.evidence_dir}")
-            return evidence_files
+            return []
         
-        # Recursively scan for supported files
-        for file_path in self.evidence_dir.rglob("*"):
-            if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
-                evidence_files.append(file_path)
+        max_size_bytes = self.config["max_file_size_mb"] * 1024 * 1024
+        evidence_files = []
+        skipped_files = []
         
-        self.logger.info(f"Found {len(evidence_files)} supported files in evidence directory")
+        for f in self.evidence_dir.rglob("*"):
+            if f.is_file() and f.suffix.lower() in supported_extensions:
+                try:
+                    file_size = f.stat().st_size
+                    if file_size <= max_size_bytes:
+                        evidence_files.append(f)
+                    else:
+                        skipped_files.append(f)
+                        self.logger.warning(f"Skipping large file ({file_size/1024/1024:.1f}MB): {f.name}")
+                except OSError:
+                    self.logger.warning(f"Cannot access file: {f}")
+        
+        if skipped_files:
+            self.logger.info(f"Skipped {len(skipped_files)} files (too large)")
+        
+        self.logger.info(f"Found {len(evidence_files)} supported files")
         return evidence_files
     
     def extract_metadata_batch(self, evidence_files: List[Path]) -> Dict[str, Any]:
-        """Extract metadata from all evidence files in batch"""
         if not evidence_files:
-            self.logger.warning("No evidence files to process")
             return {"status": "NO_FILES", "files_processed": 0}
         
-        self.logger.info(f"Starting batch metadata extraction for {len(evidence_files)} files")
+        self.logger.info(f"Processing {len(evidence_files)} files")
         start_time = datetime.now()
         
-        # Process files directly from evidence directory
         extraction_result = self._run_exiftool_batch(self.evidence_dir)
         
         if extraction_result.get("success"):
-            # Create multiple output formats
             json_file = extraction_result.get("output_file")
             if json_file and Path(json_file).exists():
                 self._create_multiple_outputs(json_file)
-            
-            # Generate file integrity hashes
             self._generate_integrity_report(evidence_files)
-            
-            # Generate summary report
             self._generate_summary_report(evidence_files, extraction_result)
         
         processing_time = (datetime.now() - start_time).total_seconds()
@@ -209,88 +215,47 @@ class AutomatedExifTool:
         return result
     
     def _run_exiftool_batch(self, input_dir: Path) -> Dict[str, Any]:
-        """Run ExifTool on batch of files"""
         output_file = self.output_dir / f"metadata_{self.case_id}.json"
         
-        # Build ExifTool command with advanced options
-        cmd = [self.exiftool_path]
-        
-        # Recursive processing
-        cmd.append("-r")
-        
-        # Advanced extraction options for maximum metadata
+        cmd = [self.exiftool_path, "-r"]
         if self.config["advanced_extraction"]:
             cmd.extend(["-all:all", "-G", "-a", "-u", "-ee"])
         else:
             cmd.append("-all")
+        cmd.extend(["-coordFormat", "%.6f", "-json", str(input_dir)])
         
-        # GPS coordinate format
-        cmd.extend(["-coordFormat", "%.6f"])
-        
-        # JSON output - FIXED: output file should come after input directory
-        cmd.append("-json")
-        
-        # Input directory
-        cmd.append(str(input_dir))
+        # Calculate dynamic timeout based on file count
+        file_count = len(list(input_dir.rglob("*")))
+        dynamic_timeout = min(max(file_count * 30, 120), 600)  # 30s per file, min 2min, max 10min
         
         try:
-            self.logger.info(f"Executing ExifTool: {' '.join(cmd)}")
+            self.logger.info(f"Executing ExifTool on {file_count} items, timeout: {dynamic_timeout}s")
+            result = subprocess.run(cmd, capture_output=True, text=True, 
+                                  timeout=dynamic_timeout, encoding='utf-8', errors='ignore')
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=self.config["timeout"]
-            )
-            
-            if result.returncode == 0:
-                # Save JSON output to file
+            # ExifTool returns success if stdout contains JSON data, regardless of exit code
+            if result.stdout.strip().startswith('[') or result.stdout.strip().startswith('{'):
+                self.logger.info("ExifTool produced valid JSON output")
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write(result.stdout)
+                
+                metadata_count = 0
                 try:
-                    with open(output_file, 'w', encoding='utf-8') as f:
-                        f.write(result.stdout)
-                    
-                    # Count metadata entries
-                    metadata_count = 0
-                    if output_file.exists():
-                        try:
-                            with open(output_file, 'r', encoding='utf-8') as f:
-                                metadata = json.load(f)
-                                metadata_count = len(metadata) if isinstance(metadata, list) else 1
-                            self.total_metadata_entries = metadata_count
-                        except Exception as e:
-                            self.logger.error(f"Error reading metadata file: {e}")
-                    
-                    return {
-                        "success": True,
-                        "output_file": str(output_file),
-                        "metadata_entries": metadata_count,
-                        "command": " ".join(cmd)
-                    }
-                except Exception as e:
-                    return {
-                        "success": False,
-                        "error": f"Failed to save JSON output: {e}",
-                        "command": " ".join(cmd)
-                    }
+                    with open(output_file, 'r', encoding='utf-8') as f:
+                        metadata = json.load(f)
+                        metadata_count = len(metadata) if isinstance(metadata, list) else 1
+                    self.total_metadata_entries = metadata_count
+                except Exception:
+                    pass
+                
+                return {"success": True, "output_file": str(output_file), "metadata_entries": metadata_count}
             else:
-                return {
-                    "success": False,
-                    "error": result.stderr,
-                    "command": " ".join(cmd)
-                }
+                return {"success": False, "error": result.stderr or "No valid output produced"}
                 
         except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "error": "ExifTool execution timed out",
-                "command": " ".join(cmd)
-            }
+            return {"success": False, "error": f"ExifTool execution timed out after {dynamic_timeout} seconds"}
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "command": " ".join(cmd) if 'cmd' in locals() else "unknown"
-            }
+            return {"success": False, "error": str(e)}
     
     def _create_multiple_outputs(self, json_file: str):
         """Create CSV and HTML outputs from JSON data"""
@@ -493,6 +458,110 @@ class AutomatedExifTool:
         except Exception as e:
             self.logger.error(f"Error creating summary report: {e}")
     
+    def process_single_file(self, file_path: str) -> Dict[str, Any]:
+        """Process a single file and return results"""
+        file_path = Path(file_path).resolve()
+        
+        if not file_path.exists():
+            return {"status": "ERROR", "error": f"File not found: {file_path}"}
+        
+        if not file_path.is_file():
+            return {"status": "ERROR", "error": f"Path is not a file: {file_path}"}
+        
+        print(f"\n{'='*60}")
+        print("EDITH-Automater ExifTool Single File Processing")
+        print(f"{'='*60}")
+        print(f"Case ID: {self.case_id}")
+        print(f"File: {file_path}")
+        print(f"ExifTool Path: {self.exiftool_path}")
+        print(f"{'='*60}\n")
+        
+        start_time = datetime.now()
+        result = self._run_exiftool_single_file(file_path)
+        
+        if result.get("success"):
+            json_file = result.get("output_file")
+            if json_file and Path(json_file).exists():
+                self._create_multiple_outputs(json_file)
+            self._generate_summary_report([file_path], result)
+        
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        final_result = {
+            "status": "SUCCESS" if result.get("success") else "ERROR",
+            "case_id": self.case_id,
+            "timestamp": start_time.isoformat(),
+            "processing_time": processing_time,
+            "file_path": str(file_path),
+            "result_directory": str(self.case_result_dir),
+            "metadata_entries": result.get("metadata_entries", 0),
+            "output_files": {
+                "json": str(self.output_dir / f"metadata_{self.case_id}.json"),
+                "csv": str(self.output_dir / f"metadata_{self.case_id}.csv"),
+                "html": str(self.output_dir / f"metadata_{self.case_id}.html"),
+                "summary": str(self.output_dir / f"summary_{self.case_id}.txt")
+            }
+        }
+        
+        if not result.get("success"):
+            final_result["error"] = result.get("error", "Unknown error")
+        
+        # Display results
+        print(f"{'='*60}")
+        print("PROCESSING COMPLETE")
+        print(f"{'='*60}")
+        
+        if final_result["status"] == "SUCCESS":
+            print("✅ Processing completed successfully!")
+            print(f"📈 Metadata entries: {final_result['metadata_entries']}")
+            print(f"⏱️  Processing time: {final_result['processing_time']:.2f} seconds")
+            print(f"📁 Results saved to: {final_result['result_directory']}")
+        else:
+            print("❌ Processing failed!")
+            print(f"Error: {final_result.get('error', 'Unknown error')}")
+        
+        print(f"{'='*60}\n")
+        return final_result
+    
+    def _run_exiftool_single_file(self, file_path: Path) -> Dict[str, Any]:
+        """Run ExifTool on a single file"""
+        output_file = self.output_dir / f"metadata_{self.case_id}.json"
+        
+        cmd = [self.exiftool_path]
+        if self.config["advanced_extraction"]:
+            cmd.extend(["-all:all", "-G", "-a", "-u", "-ee"])
+        else:
+            cmd.append("-all")
+        cmd.extend(["-coordFormat", "%.6f", "-json", str(file_path)])
+        
+        try:
+            self.logger.info(f"Processing single file: {file_path.name}")
+            result = subprocess.run(cmd, capture_output=True, text=True, 
+                                  timeout=60, encoding='utf-8', errors='ignore')
+            
+            # ExifTool returns success if stdout contains JSON data
+            if result.stdout.strip().startswith('[') or result.stdout.strip().startswith('{'):
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write(result.stdout)
+                
+                metadata_count = 0
+                try:
+                    with open(output_file, 'r', encoding='utf-8') as f:
+                        metadata = json.load(f)
+                        metadata_count = len(metadata) if isinstance(metadata, list) else 1
+                    self.total_metadata_entries = metadata_count
+                except Exception:
+                    pass
+                
+                return {"success": True, "output_file": str(output_file), "metadata_entries": metadata_count}
+            else:
+                return {"success": False, "error": result.stderr or "No valid output produced"}
+                
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "ExifTool execution timed out"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
     def process_all_evidence(self) -> Dict[str, Any]:
         """Main method to process all evidence files automatically"""
         print(f"\n{'='*60}")
@@ -546,16 +615,22 @@ class AutomatedExifTool:
 
 
 def main():
-    """Main function for automated processing"""
     parser = argparse.ArgumentParser(description="EDITH-Automater ExifTool Automated Processing")
-    parser.add_argument("--case-id", help="Case identifier (auto-generated if not provided)")
-    parser.add_argument("--config-only", action="store_true", help="Show configuration and exit")
+    parser.add_argument("--case-id", help="Case identifier")
+    parser.add_argument("--config-only", action="store_true", help="Show configuration")
+    parser.add_argument("--prompt", action="store_true", help="Show input directory prompt")
+    parser.add_argument("--quick", action="store_true", help="Quick mode (basic extraction only)")
+    parser.add_argument("--file", help="Process single file instead of directory")
     
     args = parser.parse_args()
     
     try:
-        # Create automated ExifTool instance
-        auto_tool = AutomatedExifTool(args.case_id)
+        auto_tool = AutomatedExifTool(args.case_id, args.prompt)
+        
+        if args.quick:
+            auto_tool.config["advanced_extraction"] = False
+            auto_tool.config["generate_hashes"] = False
+            auto_tool.logger.info("Quick mode enabled - basic extraction only")
         
         if args.config_only:
             print(f"Evidence Directory: {auto_tool.evidence_dir}")
@@ -564,20 +639,19 @@ def main():
             print(f"Case ID: {auto_tool.case_id}")
             return
         
-        # Process all evidence automatically
-        result = auto_tool.process_all_evidence()
-        
-        # Exit with appropriate code
-        if result["status"] in ["SUCCESS", "NO_FILES"]:
-            sys.exit(0)
+        # Handle single file processing
+        if args.file:
+            result = auto_tool.process_single_file(args.file)
         else:
-            sys.exit(1)
+            result = auto_tool.process_all_evidence()
+            
+        sys.exit(0 if result["status"] in ["SUCCESS", "NO_FILES"] else 1)
             
     except KeyboardInterrupt:
-        print("\n❌ Processing interrupted by user")
+        print("\n❌ Processing interrupted")
         sys.exit(1)
     except Exception as e:
-        print(f"❌ Fatal error: {e}")
+        print(f"❌ Error: {e}")
         sys.exit(1)
 
 
