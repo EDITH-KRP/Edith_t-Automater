@@ -12,6 +12,12 @@ from autopsy import auto
 from volatility import auto_vol
 from exiftool import exiftool_auto
 
+# Import bulk-extractor module
+import sys
+bulk_extractor_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bulk-extractor')
+sys.path.append(bulk_extractor_path)
+from run_bulk_extractor import run_bulk_extractor
+
 
 def setup_results_structure(case_id):
     """
@@ -30,6 +36,7 @@ def setup_results_structure(case_id):
         'autopsy': os.path.join(case_results_dir, "Autopsy_output"), 
         'volatility': os.path.join(case_results_dir, "Volatility_output"),
         'exiftool': os.path.join(case_results_dir, "ExifTool_output"),
+        'bulk_extractor': os.path.join(case_results_dir, "BulkExtractor_output"),
         'reports': os.path.join(case_results_dir, "Final_Reports")
     }
     
@@ -41,9 +48,41 @@ def setup_results_structure(case_id):
     return case_results_dir, subdirs
 
 
+def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
+    """
+    Wrapper for bulk-extractor with custom output directory
+    """
+    import subprocess
+    
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Valid scanners from bulk-extractor
+    VALID_SCANNERS = ["email", "base16", "hiberfile", "outlook", "wordlist", "xor"]
+    
+    # Build command with custom output directory
+    cmd = ["bulk_extractor", "-o", output_dir]
+    for scanner in VALID_SCANNERS:
+        cmd.extend(["-E", scanner])
+    cmd.append(evidence_path)
+    
+    print(f"    [+] Running: {' '.join(cmd)}")
+    
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"    [-] bulk_extractor error: {e}")
+        return False
+    except FileNotFoundError:
+        print("    [-] bulk_extractor not found. Please install bulk_extractor.")
+        return False
+
+
 def run_workflow(evidence_path, memory_file=None):
     print("=" * 80)
     print("EDITH-Automater Unified Forensic Workflow (Minimal Prompts)")
+    print("HashDeep → Autopsy → Volatility → ExifTool → BulkExtractor → HashDeep")
     print("=" * 80)
 
     # Generate unique case ID
@@ -91,14 +130,7 @@ def run_workflow(evidence_path, memory_file=None):
     else:
         print("\n[*] No memory file provided or file not found. Skipping memory analysis.")
 
-    # 4. Run HashDeep Verification
-    print("\n=== Running HashDeep Verification ===")
-    verification_dir = os.path.join(subdirs['hashdeep'], "verification")
-    os.makedirs(verification_dir, exist_ok=True)
-    verify_results = hashdeep.main(evidence_path, output_path=verification_dir)
-    print(f"[+] HashDeep verification completed. Report saved in: {verification_dir}")
-
-    # 5. Run ExifTool (process evidence directory)
+    # 4. Run ExifTool (process evidence directory)
     print("\n=== Running ExifTool Analysis ===")
     try:
         # Create ExifTool instance with custom output directory
@@ -117,13 +149,45 @@ def run_workflow(evidence_path, memory_file=None):
         print(f"[-] ExifTool analysis failed: {e}")
         print("    [*] Continuing workflow...")
 
+    # 5. Run Bulk-Extractor Analysis
+    print("\n=== Running Bulk-Extractor Analysis ===")
+    try:
+        print(f"[+] Extracting data from disk image: {os.path.basename(evidence_path)}")
+        bulk_output = os.path.join(subdirs['bulk_extractor'], "be_results")
+        
+        success = run_bulk_extractor_with_custom_output(evidence_path, bulk_output)
+        
+        if success:
+            print(f"[+] Bulk-Extractor analysis completed successfully")
+            print(f"    📁 Results: {bulk_output}")
+            
+            # Show what was extracted
+            if os.path.exists(bulk_output):
+                files = os.listdir(bulk_output)
+                key_files = [f for f in files if f.endswith('.txt') and f != 'report.xml'][:5]
+                print(f"    📊 Key extractions: {', '.join(key_files)}")
+        else:
+            print("[-] Bulk-Extractor analysis failed")
+            
+    except Exception as e:
+        print(f"[-] Bulk-Extractor analysis failed: {e}")
+        print("    [*] Continuing workflow...")
+
+    # 6. Run HashDeep Verification
+    print("\n=== Running HashDeep Verification ===")
+    verification_dir = os.path.join(subdirs['hashdeep'], "verification")
+    os.makedirs(verification_dir, exist_ok=True)
+    verify_results = hashdeep.main(evidence_path, output_path=verification_dir)
+    print(f"[+] HashDeep verification completed. Report saved in: {verification_dir}")
+
     print("\n✅ Full forensic workflow completed successfully!")
     print("   - Baseline hashes created")
     print("   - Autopsy analysis done")
     if memory_file:
         print("   - Memory analysis completed")
-    print("   - Final verification passed")
     print("   - ExifTool metadata extracted")
+    print("   - Bulk-Extractor data extraction completed")
+    print("   - Final verification passed")
 
     # Final cleanup: Remove any stray Evidence directories
     print("\n🧹 Performing final cleanup...")
