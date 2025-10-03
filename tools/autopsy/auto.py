@@ -32,10 +32,11 @@ def get_partition_offset(image_path):
             break
     return offset, output
 
-def main(image_path=None):
+def main(image_path=None, output_dir=None):
     """
     Main function for forensic analysis.
     If image_path is None, ask for input.
+    If output_dir is None, use default "Evidence" directory.
     """
     if image_path is None:
         image_path = input("Enter path to evidence image (.E01/.dd): ").strip()
@@ -48,8 +49,11 @@ def main(image_path=None):
         print(f"[!] Error: File not found: {image_path}")
         return
 
-    # Setup folder
-    case_folder = os.path.join("Evidence")
+    # Setup folder - use custom output directory if provided
+    if output_dir:
+        case_folder = os.path.abspath(output_dir)
+    else:
+        case_folder = os.path.join("Evidence")
     os.makedirs(case_folder, exist_ok=True)
 
     # Hash evidence

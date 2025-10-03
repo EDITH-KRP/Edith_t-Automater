@@ -7,12 +7,17 @@ from datetime import datetime
 from pathlib import Path
 
 class VolatilityAnalyzer:
-    def __init__(self):
+    def __init__(self, custom_results_dir=None):
         # Get current script directory and set relative paths
         self.script_dir = Path(__file__).parent.absolute()
         self.vol_path = self.script_dir / "volatility3" / "vol.py"
         self.mem_dir = self.script_dir / "mem"
-        self.results_dir = self.script_dir / "results"
+        
+        # Use custom results directory if provided, otherwise use default
+        if custom_results_dir:
+            self.results_dir = Path(custom_results_dir)
+        else:
+            self.results_dir = self.script_dir / "results"
         
         # Create necessary directories
         self.mem_dir.mkdir(exist_ok=True)
@@ -248,9 +253,9 @@ class VolatilityAnalyzer:
         
         return results
 
-def run_volatility(quick_mode=False, memory_file=None):
+def run_volatility(quick_mode=False, memory_file=None, output_dir=None):
     """Main function for external calls"""
-    analyzer = VolatilityAnalyzer()
+    analyzer = VolatilityAnalyzer(custom_results_dir=output_dir)
     return analyzer.run_analysis(quick_mode=quick_mode, specific_file=memory_file)
 
 def main():
