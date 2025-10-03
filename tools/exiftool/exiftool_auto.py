@@ -31,12 +31,17 @@ import argparse
 class AutomatedExifTool:
     """Automated ExifTool for batch processing evidence files"""
     
-    def __init__(self, case_id: str = None, show_prompt: bool = False):
+    def __init__(self, case_id: str = None, show_prompt: bool = False, custom_result_dir: str = None):
         self.case_id = case_id or f"AUTO_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         self.tool_dir = Path(__file__).parent
         self.evidence_dir = (self.tool_dir / ".." / ".." / "evidence").resolve()
-        self.result_dir = (self.evidence_dir / ".." / "Results" / "Exiftool_output").resolve()
+        
+        # Use custom result directory if provided, otherwise use default
+        if custom_result_dir:
+            self.result_dir = Path(custom_result_dir).resolve()
+        else:
+            self.result_dir = (self.evidence_dir / ".." / "Results" / "Exiftool_output").resolve()
         
         custom_input = self._prompt_for_input_directory() if show_prompt else None
         if custom_input:
