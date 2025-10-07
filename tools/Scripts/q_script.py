@@ -342,7 +342,7 @@ def main():
     
     # Generate filename with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"evidence_collection_form_{timestamp}.txt"
+    filename = f"questions_{timestamp}.txt"
     questions_dir = subdirs['questions']
     full_path = os.path.join(questions_dir, filename)
     

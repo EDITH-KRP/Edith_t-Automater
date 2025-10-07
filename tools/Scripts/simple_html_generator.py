@@ -6,12 +6,18 @@ from datetime import datetime
 
 def read_questions_file():
     """Read the most recent questions.txt file"""
-    # Look for questions files in the evidence/Results/Questions directory
-    pattern = os.path.join('..', '..', 'evidence', 'Results', 'Questions', '*.txt')
+    # Look for questions files in the new Results/CASE_*/Questions directory structure
+    pattern = os.path.join('..', '..', 'Results', 'CASE_*', 'Questions', '*.txt')
     question_files = glob.glob(pattern)
     
     if not question_files:
-        print("No question files found. Looking in evidence directory...")
+        print("No question files found in Results directory. Looking in old evidence directory...")
+        # Fallback to old structure for backward compatibility
+        pattern = os.path.join('..', '..', 'evidence', 'Results', 'Questions', '*.txt')
+        question_files = glob.glob(pattern)
+        
+    if not question_files:
+        print("No question files found in evidence directory either...")
         pattern = os.path.join('..', '..', 'evidence', '*.txt')
         question_files = glob.glob(pattern)
         
@@ -27,30 +33,78 @@ def read_questions_file():
         content = f.read()
     
     print(f"Using data from: {question_files[0]}")
-    return content
+    return content, question_files[0]
+
+def get_output_directory(questions_file_path, timestamp):
+    """Determine the correct output directory based on the questions file path"""
+    # Check if the questions file is in the new Results/CASE_* structure
+    if 'Results' in questions_file_path and 'CASE_' in questions_file_path:
+        # Extract the case folder from the path
+        # Path format: Results/CASE_20251007_160412/Questions/filename.txt
+        parts = questions_file_path.split(os.sep)
+        for i, part in enumerate(parts):
+            if part.startswith('CASE_'):
+                case_folder = part
+                # Create output path in the same case folder
+                output_dir = os.path.join('..', '..', 'Results', case_folder, 'Final_Reports')
+                break
+        else:
+            # Fallback if case folder not found
+            output_dir = os.path.join('..', '..', 'evidence', 'Final_Reports')
+    else:
+        # Use old structure for backward compatibility
+        output_dir = os.path.join('..', '..', 'evidence', 'Final_Reports')
+    
+    # Create the directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    return output_dir
 
 def parse_questions_data(content):
     """Parse the questions.txt file content and return a dictionary"""
     data = {}
     lines = content.strip().split('\n')
     
-    # Skip header lines
+    # Find the start of actual questions data (skip headers and metadata)
     start_idx = 0
     for i, line in enumerate(lines):
-        if '=' in line or not line.strip():
-            start_idx = i + 1
+        # Skip header lines, separator lines, and metadata
+        if ('=' in line and len(line.strip()) > 20) or line.strip() == '' or 'Case ID:' in line or 'Generated:' in line or 'Case Directory:' in line:
+            continue
+        # Stop at METADATA section
+        if 'METADATA' in line:
+            break
+        # This is actual data
+        if ':' in line and not any(x in line for x in ['Case ID:', 'Generated:', 'Case Directory:']):
+            start_idx = i
+            break
     
     # Parse the actual data lines
-    for line in lines[start_idx:]:
-        if ':' in line:
+    for i in range(start_idx, len(lines)):
+        line = lines[i].strip()
+        
+        # Stop at METADATA section
+        if 'METADATA' in line or '============================================================' in line:
+            break
+            
+        if ':' in line and line.strip():
+            # Split only on the first colon to handle values that contain colons
             key, value = line.split(':', 1)
-            # Clean up key by removing example text - fix the regex pattern
-            clean_key = re.sub(r'\s*\(Example.*?$', '', key.strip())
-            # Clean up value by removing duplicate text after the closing parenthesis
-            clean_value = re.sub(r'^.*?\):\s*', '', value.strip())
-            if not clean_value:  # If the cleaning removed everything, use original value
-                clean_value = value.strip()
-            data[clean_key] = clean_value
+            
+            # Clean up key by removing example text - handle cases where closing ) might be missing
+            clean_key = re.sub(r'\s*\(Example[^)]*\)?', '', key.strip())
+            # Also handle cases where the key ends with just "(Example"
+            clean_key = re.sub(r'\s*\(Example.*$', '', clean_key)
+            
+            # Clean up value - strip whitespace and remove any remaining closing parenthesis from example
+            clean_value = value.strip()
+            # If value starts with closing parenthesis from example, remove it and everything before the actual value
+            if '):' in clean_value:
+                # Find the actual value after the example closing
+                clean_value = clean_value.split('):')[-1].strip()
+            
+            # Skip empty values and metadata
+            if clean_value and not any(x in clean_key for x in ['Case ID', 'Generated', 'Case Directory', 'File created', 'Script version']):
+                data[clean_key] = clean_value
     
     return data
 
@@ -59,13 +113,13 @@ def extract_date_time(datetime_str):
     # Clean up any example text
     datetime_str = re.sub(r'\(Example:.*?\)', '', datetime_str).strip()
     
-    # Common patterns like '12-09-2025 2:00PM'
-    match = re.search(r'(\d{1,2}-\d{1,2}-\d{4})\s+(\d{1,2}:\d{2}(?:AM|PM)?)', datetime_str)
+    # Common patterns like '12-09-2025 2:00PM' or '23/10/2025 2:30'
+    match = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\s+(\d{1,2}:\d{2}(?:AM|PM)?)', datetime_str)
     if match:
         return match.group(1), match.group(2)
     
-    # Try to find separate date and time portions
-    date_match = re.search(r'(\d{1,2}-\d{1,2}-\d{4})', datetime_str)
+    # Try to find separate date and time portions - support both / and - separators
+    date_match = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})', datetime_str)
     time_match = re.search(r'(\d{1,2}:\d{2}(?:AM|PM)?)', datetime_str)
     
     date = date_match.group(1) if date_match else ""
@@ -89,7 +143,7 @@ def extract_device_info(storage_str):
     
     return make, model, size, serial_no
 
-def generate_digital_evidence_form(data, timestamp):
+def generate_digital_evidence_form(data, timestamp, output_dir):
     """Generate digital evidence form HTML from the parsed data"""
     template_path = os.path.join('..', '..', 'reports', 'Reports html', 'digital_evidence_form.html')
     with open(template_path, 'r') as f:
@@ -320,31 +374,50 @@ def generate_digital_evidence_form(data, timestamp):
     if not working_make and make:
         working_make, working_model, working_size, working_serial = make, model, size, serial_no
     
-    # Apply working copy details by directly targeting the working copy table
-    # Find the working copy table specifically (the second table after "Working Copy Details:")
+    # Apply both master copy and working copy details
+    # Find the working copy header section
     working_copy_header = html_content.find('Working Copy Details:')
     if working_copy_header != -1:
-        # Find the table that comes after "Working Copy Details:"
-        working_table_start = html_content.find('<table style="width: 100%; border: none;"', working_copy_header)
-        if working_table_start != -1:
-            working_table_end = html_content.find('</table>', working_table_start) + 8
-            working_table_section = html_content[working_table_start:working_table_end]
+        # Find the first table (Master Copy) after "Working Copy Details:"
+        first_table_start = html_content.find('<table style="width: 100%; border: none;"', working_copy_header)
+        if first_table_start != -1:
+            first_table_end = html_content.find('</table>', first_table_start) + 8
+            master_table_section = html_content[first_table_start:first_table_end]
             
-            # Replace the working copy values in this specific table
-            working_table_section = working_table_section.replace('Make:</td>', f'Make: {working_make}</td>')
-            working_table_section = working_table_section.replace('Model:</td>', f'Model: {working_model}</td>')
-            working_table_section = working_table_section.replace('Serial No:</td>', f'Serial No: {working_serial}</td>')
-            working_table_section = working_table_section.replace('Size:</td>', f'Size: {working_size}</td>')
+            # Replace the master copy values in the first table
+            master_table_section = master_table_section.replace('Make:</td>', f'Make: {make}</td>')
+            master_table_section = master_table_section.replace('Model:</td>', f'Model: {model}</td>')
+            master_table_section = master_table_section.replace('Serial No:</td>', f'Serial No: {serial_no}</td>')
+            master_table_section = master_table_section.replace('Size:</td>', f'Size: {size}</td>')
             
-            # Replace the original table with the updated one
-            html_content = html_content[:working_table_start] + working_table_section + html_content[working_table_end:]
+            # Replace the original master table with the updated one
+            html_content = html_content[:first_table_start] + master_table_section + html_content[first_table_end:]
+            
+            # Find the second table (Working Copy) after the first table
+            # Need to re-find positions after the first replacement
+            working_copy_header = html_content.find('Working Copy Details:')
+            first_table_start = html_content.find('<table style="width: 100%; border: none;"', working_copy_header)
+            first_table_end = html_content.find('</table>', first_table_start) + 8
+            working_table_start = html_content.find('<table style="width: 100%; border: none;"', first_table_end)
+            if working_table_start != -1:
+                working_table_end = html_content.find('</table>', working_table_start) + 8
+                working_table_section = html_content[working_table_start:working_table_end]
+                
+                # Replace the working copy values in this specific table
+                working_table_section = working_table_section.replace('Make:</td>', f'Make: {working_make}</td>')
+                working_table_section = working_table_section.replace('Model:</td>', f'Model: {working_model}</td>')
+                working_table_section = working_table_section.replace('Serial No:</td>', f'Serial No: {working_serial}</td>')
+                working_table_section = working_table_section.replace('Size:</td>', f'Size: {working_size}</td>')
+                
+                # Replace the original table with the updated one
+                html_content = html_content[:working_table_start] + working_table_section + html_content[working_table_end:]
     
     # Digital Forensic Examiner
     html_content = html_content.replace('<td colspan="4" style="height: 60px;">Digital Forensic Examiner:</td>', 
                                      f'<td colspan="4" style="height: 60px;">Digital Forensic Examiner: {forensic_examiner}</td>')
     
     # Create output path
-    output_path = os.path.join('..', '..', 'evidence', 'Final_Reports', f'FILLED_digital_evidence_form_{timestamp}.html')
+    output_path = os.path.join(output_dir, f'FILLED_digital_evidence_form_{timestamp}.html')
     
     # Save the filled HTML form
     with open(output_path, 'w') as f:
@@ -353,7 +426,7 @@ def generate_digital_evidence_form(data, timestamp):
     print(f"Digital Evidence Form generated successfully: {output_path}")
     return output_path
 
-def generate_chain_of_custody_form(data, timestamp):
+def generate_chain_of_custody_form(data, timestamp, output_dir):
     """Generate chain of custody form HTML from the parsed data"""
     template_path = os.path.join('..', '..', 'reports', 'Reports html', 'chain_of_custody.html')
     with open(template_path, 'r') as f:
@@ -397,36 +470,18 @@ def generate_chain_of_custody_form(data, timestamp):
     html_content = html_content.replace('<!-- real date for report -->', 
                                       f'{start_date}')
     
-    # Master Copy Details - Replace device info in the Master Copy section
-    master_copy_section = html_content.find('Master Copy Details')
-    if master_copy_section != -1:
-        device_info_start = html_content.find('Make:', master_copy_section)
-        if device_info_start != -1:
-            device_info_end = html_content.find('</td>', device_info_start)
-            if device_info_end != -1:
-                device_info_section = html_content[device_info_start:device_info_end]
-                master_details = f"""Make: {master_make}<br>
-Model: {master_model}<br>
-Size: {master_size}<br>
-Serial NO: {master_serial}"""
-                html_content = html_content.replace(device_info_section, master_details)
+    # Master Copy Details and Working Copy Details - Use more precise replacement
+    # Find the table row that contains both Master Copy and Working Copy sections
+    master_working_pattern = r'(<td colspan="2" style="font-weight: bold; line-height: 1\.8;">\s*)(Make:<br>\s*Model:<br>\s*Size:<br>\s*Serial NO:)(\s*</td>\s*<td colspan="2" style="font-weight: bold; line-height: 1\.8;">\s*)(Make:<br>\s*Model:<br>\s*Size:<br>\s*Serial NO:)(\s*</td>)'
     
-    # Working Copy Details - Replace device info in the Working Copy section
-    working_copy_section = html_content.find('Working Copy Details')
-    if working_copy_section != -1:
-        device_info_start = html_content.find('Make:', working_copy_section)
-        if device_info_start != -1:
-            device_info_end = html_content.find('</td>', device_info_start)
-            if device_info_end != -1:
-                device_info_section = html_content[device_info_start:device_info_end]
-                working_details = f"""Make: {working_make}<br>
-Model: {working_model}<br>
-Size: {working_size}<br>
-Serial NO: {working_serial}"""
-                html_content = html_content.replace(device_info_section, working_details)
+    master_details = f"Make: {master_make}<br>\n                    Model: {master_model}<br>\n                    Size: {master_size}<br>\n                    Serial NO: {master_serial}"
+    working_details = f"Make: {working_make}<br>\n                    Model: {working_model}<br>\n                    Size: {working_size}<br>\n                    Serial NO: {working_serial}"
+    
+    replacement = f"\\1{master_details}\\3{working_details}\\5"
+    html_content = re.sub(master_working_pattern, replacement, html_content)
     
     # Create output path
-    output_path = os.path.join('..', '..', 'evidence', 'Final_Reports', f'FILLED_chain_of_custody_{timestamp}.html')
+    output_path = os.path.join(output_dir, f'FILLED_chain_of_custody_{timestamp}.html')
     
     # Save the filled HTML form
     with open(output_path, 'w') as f:
@@ -435,7 +490,7 @@ Serial NO: {working_serial}"""
     print(f"Chain of Custody Form generated successfully: {output_path}")
     return output_path
 
-def generate_form_65B(data, timestamp):
+def generate_form_65B(data, timestamp, output_dir):
     """Generate Form 65B HTML from the parsed data"""
     template_path = os.path.join('..', '..', 'reports', 'Reports html', 'form_65B.html')
     with open(template_path, 'r') as f:
@@ -507,7 +562,7 @@ def generate_form_65B(data, timestamp):
         html_content = html_content[:master_section_start] + master_section + working_section + html_content[copy_details_end:]
     
     # Create output path
-    output_path = os.path.join('..', '..', 'evidence', 'Final_Reports', f'FILLED_form_65B_{timestamp}.html')
+    output_path = os.path.join(output_dir, f'FILLED_form_65B_{timestamp}.html')
     
     # Save the filled HTML form
     with open(output_path, 'w') as f:
@@ -516,7 +571,7 @@ def generate_form_65B(data, timestamp):
     print(f"Form 65B generated successfully: {output_path}")
     return output_path
 
-def generate_job_form(data, timestamp):
+def generate_job_form(data, timestamp, output_dir):
     """Generate Job Form HTML from the parsed data"""
     template_path = os.path.join('..', '..', 'reports', 'Reports html', 'job_form.html')
     with open(template_path, 'r') as f:
@@ -627,59 +682,32 @@ def generate_job_form(data, timestamp):
     
     # Hard Disk Capacity Table - Fill based on capacity data
     if hdd_capacity:
-        # Extract capacity value (e.g., "5TB" -> find row for appropriate TB)
-        if "1" in hdd_capacity and "tb" in hdd_capacity.lower():
-            html_content = html_content.replace('<td style="text-align: center;">1 TB</td>\n                <td></td>', 
-                                             f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>')
-        elif "2" in hdd_capacity and "tb" in hdd_capacity.lower():
-            html_content = html_content.replace('<td style="text-align: center;">2 TB</td>\n                <td></td>', 
-                                             f'<td style="text-align: center;">2 TB</td>\n                <td>{hdd_used}</td>')
-        elif "4" in hdd_capacity and "tb" in hdd_capacity.lower():
-            html_content = html_content.replace('<td style="text-align: center;">4 TB</td>\n                <td></td>', 
-                                             f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>')
-        else:
-            # Default to first row if capacity doesn't match exactly
-            html_content = html_content.replace('<td style="text-align: center;">1 TB</td>\n                <td></td>', 
-                                             f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>')
-    
-    # Fill HDD provider information - simplified approach
-    if hdd_lab_systems and hdd_capacity:
-        # Find and replace the Lab Systems column for the specific TB row
+        # Extract capacity value and fill the appropriate row
         if "2" in hdd_capacity and "tb" in hdd_capacity.lower():
-            # For 2TB row, replace the third column (Lab Systems column)
-            html_content = html_content.replace('<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td></td>', 
-                                             f'<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td>{hdd_lab_systems}</td>')
+            # Fill 2TB row with all values
+            html_content = html_content.replace(
+                '<td style="text-align: center;">2 TB</td>\n                <td></td>\n                <td></td>\n                <td></td>',
+                f'<td style="text-align: center;">2 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>'
+            )
         elif "1" in hdd_capacity and "tb" in hdd_capacity.lower():
-            html_content = html_content.replace(f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>', 
-                                             f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>')
+            # Fill 1TB row with all values
+            html_content = html_content.replace(
+                '<td style="text-align: center;">1 TB</td>\n                <td></td>\n                <td></td>\n                <td></td>',
+                f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>'
+            )
         elif "4" in hdd_capacity and "tb" in hdd_capacity.lower():
-            html_content = html_content.replace(f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>', 
-                                             f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>')
+            # Fill 4TB row with all values
+            html_content = html_content.replace(
+                '<td style="text-align: center;">4 TB</td>\n                <td></td>\n                <td></td>\n                <td></td>',
+                f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>'
+            )
     
-    if hdd_income_tax and hdd_capacity:
-        # Find and replace the Income Tax column for the specific TB row
-        if "2" in hdd_capacity and "tb" in hdd_capacity.lower():
-            # For 2TB row, replace the fourth column (Income Tax column)
-            if hdd_lab_systems:
-                html_content = html_content.replace(f'<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td>{hdd_lab_systems}</td>\n                <td></td>', 
-                                                 f'<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>')
-            else:
-                html_content = html_content.replace('<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td></td>\n                <td></td>', 
-                                                 f'<td style="text-align: center;">2 TB</td>\n                <td>4</td>\n                <td></td>\n                <td>{hdd_income_tax}</td>')
-        elif "1" in hdd_capacity and "tb" in hdd_capacity.lower():
-            if hdd_lab_systems:
-                html_content = html_content.replace(f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td></td>', 
-                                                 f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>')
-            else:
-                html_content = html_content.replace(f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>\n                <td></td>', 
-                                                 f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>\n                <td>{hdd_income_tax}</td>')
-        elif "4" in hdd_capacity and "tb" in hdd_capacity.lower():
-            if hdd_lab_systems:
-                html_content = html_content.replace(f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td></td>', 
-                                                 f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>')
-            else:
-                html_content = html_content.replace(f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>\n                <td></td>', 
-                                                 f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td></td>\n                <td>{hdd_income_tax}</td>')
+    # Fill Total No. of Hard Disk Used
+    if hdd_used:
+        html_content = html_content.replace(
+            '<td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>\n                <td></td>',
+            f'<td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>\n                <td>{hdd_used}</td>'
+        )
     
     # Total Hard Disk Used
     if hdd_used:
@@ -712,7 +740,7 @@ def generate_job_form(data, timestamp):
     # Lead Forensic Examiner and Authorised Officer signatures will remain blank
     
     # Create output path
-    output_path = os.path.join('..', '..', 'evidence', 'Final_Reports', f'FILLED_job_form_{timestamp}.html')
+    output_path = os.path.join(output_dir, f'FILLED_job_form_{timestamp}.html')
     
     # Save the filled HTML form
     with open(output_path, 'w') as f:
@@ -721,7 +749,7 @@ def generate_job_form(data, timestamp):
     print(f"Job Form generated successfully: {output_path}")
     return output_path
 
-def generate_master_copy(data, timestamp):
+def generate_master_copy(data, timestamp, output_dir):
     """Generate Master Copy HTML from the parsed data"""
     template_path = os.path.join('..', '..', 'reports', 'Reports html', 'master_copy.html')
     
@@ -732,12 +760,12 @@ def generate_master_copy(data, timestamp):
     # Extract data from questions
     case_name = data.get("Case Name / No", "")
     premise_address = data.get("Premise Address", "")
-    search_date = data.get("Search Date (Example: 12-09-2025)", "")
+    search_date = data.get("Search Date", "") or data.get("Search Date (Example: 12-09-2025)", "")
     # Clean up search date - remove example text
     if "Example:" in search_date:
         search_date = search_date.split(")")[-1].strip()
     elif search_date == "":
-        search_date = data.get("Search Date", "")
+        search_date = ""
     
     assessee_name = data.get("Name of Assessee / Party", "")
     device_type = data.get("Device Type (Laptop/Desktop/Server/Other)", "")
@@ -801,7 +829,7 @@ def generate_master_copy(data, timestamp):
     # Assessee, AO, Witness 1, Witness 2 signatures will be filled manually
     
     # Create output path
-    output_path = os.path.join('..', '..', 'evidence', 'Final_Reports', f'FILLED_master_copy_{timestamp}.html')
+    output_path = os.path.join(output_dir, f'FILLED_master_copy_{timestamp}.html')
     
     # Save the filled HTML form
     with open(output_path, 'w', encoding='utf-8') as f:
@@ -810,7 +838,7 @@ def generate_master_copy(data, timestamp):
     print(f"Master Copy generated successfully: {output_path}")
     return output_path
 
-def generate_all_templates(data, timestamp):
+def generate_all_templates(data, timestamp, output_dir):
     """Generate all available templates"""
     templates = [
         ('digital_evidence_form.html', generate_digital_evidence_form),
@@ -827,7 +855,7 @@ def generate_all_templates(data, timestamp):
         template_path = os.path.join('..', '..', 'reports', 'Reports html', template_name)
         if os.path.exists(template_path):
             try:
-                output_path = generator_func(data, timestamp)
+                output_path = generator_func(data, timestamp, output_dir)
                 generated_files.append(output_path)
             except Exception as e:
                 print(f"Error generating {template_name}: {str(e)}")
@@ -839,9 +867,11 @@ def generate_all_templates(data, timestamp):
 def main():
     """Main function to generate all forms"""
     # Read the questions file
-    content = read_questions_file()
-    if not content:
+    result = read_questions_file()
+    if not result:
         return
+    
+    content, questions_file_path = result
     
     # Parse the data
     data = parse_questions_data(content)
@@ -852,12 +882,11 @@ def main():
     # Generate timestamp for filenames
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # Create output directory if it doesn't exist
-    output_dir = os.path.join('..', '..', 'evidence', 'Final_Reports')
-    os.makedirs(output_dir, exist_ok=True)
+    # Get the correct output directory based on the questions file path
+    output_dir = get_output_directory(questions_file_path, timestamp)
     
     # Generate all templates
-    generated_files = generate_all_templates(data, timestamp)
+    generated_files = generate_all_templates(data, timestamp, output_dir)
     
     print(f"Form generation complete. Generated {len(generated_files)} files:")
     for file_path in generated_files:
