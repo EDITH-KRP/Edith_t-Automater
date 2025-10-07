@@ -1,7 +1,63 @@
 ﻿import os
+from datetime import datetime
+
+def create_case_directory():
+    """
+    Create a new case directory structure for the forensic workflow
+    """
+    # Get the base directory (two levels up from Scripts folder)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(os.path.dirname(script_dir))
+    results_base = os.path.join(base_dir, "Results")
+    
+    # Create case ID with timestamp
+    case_id = datetime.now().strftime("CASE_%Y%m%d_%H%M%S")
+    case_dir = os.path.join(results_base, case_id)
+    
+    # Create directory structure
+    subdirs = {
+        'questions': os.path.join(case_dir, "Questions"),
+        'hashdeep': os.path.join(case_dir, "HashDeep_output"),
+        'autopsy': os.path.join(case_dir, "Autopsy_output"),
+        'volatility': os.path.join(case_dir, "Volatility_output"),
+        'exiftool': os.path.join(case_dir, "ExifTool_output"),
+        'bulk_extractor': os.path.join(case_dir, "BulkExtractor_output"),
+        'reports': os.path.join(case_dir, "Final_Reports")
+    }
+    
+    # Create all directories
+    for subdir_name, subdir_path in subdirs.items():
+        os.makedirs(subdir_path, exist_ok=True)
+        print(f"📁 Created: {subdir_path}")
+    
+    return case_dir, case_id, subdirs
+
+def save_case_info(case_dir, case_id):
+    """
+    Save case information for script_3.py to use
+    """
+    case_info_file = os.path.join(case_dir, ".case_info")
+    with open(case_info_file, "w") as f:
+        f.write(f"CASE_ID={case_id}\n")
+        f.write(f"CASE_DIR={case_dir}\n")
+        f.write(f"CREATED={datetime.now().isoformat()}\n")
+    
+    print(f"💾 Case info saved: {case_info_file}")
+    return case_info_file
 
 def main():
-    print("\n--- Digital Evidence Collection Form ---\n")
+    print("\n" + "="*80)
+    print("EDITH-Automater: Digital Evidence Collection & Forensic Workflow")
+    print("="*80)
+    print("Step 1: Evidence Collection Form")
+    print("Step 2: Forensic Analysis (run script_3.py after this)")
+    print("="*80)
+    
+    # Create case directory structure first
+    case_dir, case_id, subdirs = create_case_directory()
+    
+    print(f"\n🗂️  Case ID: {case_id}")
+    print(f"📂 Case Directory: {case_dir}")
     
     answers = {}
     
@@ -279,44 +335,57 @@ def main():
     ask("Witness Name")
     ask("Witness Father's Name")
     
-    # File Path Configuration
+    # Save the evidence collection form
     print("\n" + "="*50)
-    print("FILE SAVING CONFIGURATION")
+    print("SAVING EVIDENCE COLLECTION FORM")
     print("="*50)
     
-    while True:
-        base_path = input("\nEnter the destination folder path (Example: E:\\Github-adhi982\\Edith_t-Automater\\evidence): ").strip()
-        if base_path:
-            if not os.path.exists(base_path):
-                print("The given path does not exist. Creating it...")
-                os.makedirs(base_path)
-            break
-        else:
-            print("This field cannot be left empty. Please provide an answer.")
+    # Generate filename with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"evidence_collection_form_{timestamp}.txt"
+    questions_dir = subdirs['questions']
+    full_path = os.path.join(questions_dir, filename)
     
-    results_path = os.path.join(base_path, "Results", "Questions")
-    if not os.path.exists(results_path):
-        os.makedirs(results_path)
-    
-    while True:
-        file_name = input("Enter the filename (without extension, Example: questions): ").strip()
-        if file_name:
-            file_name += ".txt"
-            break
-        else:
-            print("This field cannot be left empty. Please provide an answer.")
-    
-    full_path = os.path.join(results_path, file_name)
-    
-    with open(full_path, "w") as f:
+    # Write the form
+    with open(full_path, "w", encoding='utf-8') as f:
         f.write("Digital Evidence Collection & Chain of Custody Form\n")
+        f.write("="*60 + "\n")
+        f.write(f"Case ID: {case_id}\n")
+        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Case Directory: {case_dir}\n")
         f.write("="*60 + "\n\n")
+        
         for q, a in answers.items():
             f.write(f"{q}: {a}\n")
+        
+        # Add metadata section
+        f.write(f"\n{'='*60}\n")
+        f.write("METADATA\n")
+        f.write(f"{'='*60}\n")
+        f.write(f"File created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Script version: q_script.py v2.0\n")
+        f.write(f"Case ID: {case_id}\n")
+        f.write(f"Case directory: {case_dir}\n")
     
-    print(f"\nFile saved successfully at: {full_path}")
-    return answers
+    # Save case info for script_3.py
+    save_case_info(case_dir, case_id)
+    
+    print(f"\n✅ Evidence Collection Form saved!")
+    print(f"📁 Location: {full_path}")
+    print(f"🗂️  Case directory: {case_dir}")
+    
+    print(f"\n" + "="*80)
+    print("NEXT STEPS")
+    print("="*80)
+    print(f"1. ✅ Evidence collection form completed")
+    print(f"2. 🔄 Now run: python script_3.py")
+    print(f"3. 📊 All forensic analysis will be saved to the same case directory")
+    print(f"")
+    print(f"Case ID: {case_id}")
+    print(f"Directory: {case_dir}")
+    print("="*80)
+    
+    return answers, case_dir, case_id
 
 if __name__ == "__main__":
-    data = main()
-
+    data, case_dir, case_id = main()
