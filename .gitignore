@@ -90,15 +90,6 @@ tools/volatility/results/
 bulk_extractor_output/
 */bulk_extractor_output/
 
-# Bulk Extractor source code directory (large external dependency)
-tools/bulk-extractor/bulk_extractor/
-
-# Additional bulk-extractor build artifacts (if any escape the above)
-tools/bulk-extractor/bulk_extractor/src/bulk_extractor
-tools/bulk-extractor/bulk_extractor/src/*.o
-tools/bulk-extractor/bulk_extractor/config.log
-tools/bulk-extractor/bulk_extractor/config.status
-
 # ExifTool binaries (if not needed in repo)
 tools/exiftool/bin/
 
