@@ -333,16 +333,14 @@ def main():
 
     ask_yes_no("Is Witness Signature Taken?", "Is Witness Signature Taken (Yes/No)")
     ask("Witness Name")
-    ask("Witness Father's Name")
 
     # Save the evidence collection form
     print("\n" + "="*50)
     print("SAVING EVIDENCE COLLECTION FORM")
     print("="*50)
 
-    # Generate filename with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"questions_{timestamp}.txt"
+    # Generate simple filename without timestamp
+    filename = "questions.txt"
     questions_dir = subdirs['questions']
     full_path = os.path.join(questions_dir, filename)
 

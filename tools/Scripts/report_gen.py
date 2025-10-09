@@ -4,25 +4,144 @@ import re
 import time
 from datetime import datetime
 
+# PDF generation imports
+PDF_AVAILABLE = False
+PDF_METHOD = None
+
+try:
+    from playwright.sync_api import sync_playwright
+    PDF_AVAILABLE = True
+    PDF_METHOD = "playwright"
+    print("✅ Playwright available for PDF generation")
+except ImportError:
+    try:
+        import weasyprint
+        PDF_AVAILABLE = True
+        PDF_METHOD = "weasyprint"
+        print("✅ WeasyPrint available for PDF generation")
+    except ImportError:
+        PDF_AVAILABLE = False
+        print("⚠️ No PDF library found. Install playwright for PDF generation")
+        print("   pip install playwright && playwright install chromium")
+
+def convert_html_to_pdf_weasyprint(html_file_path, pdf_file_path):
+    """Convert HTML file to PDF using WeasyPrint"""
+    try:
+        # Read HTML content
+        with open(html_file_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        
+        # Convert to PDF
+        html_doc = weasyprint.HTML(string=html_content, base_url=os.path.dirname(html_file_path))
+        html_doc.write_pdf(pdf_file_path)
+        print(f"✅ PDF generated: {os.path.basename(pdf_file_path)}")
+        return True
+    except Exception as e:
+        print(f"❌ PDF conversion failed for {os.path.basename(html_file_path)}: {e}")
+        return False
+
+def convert_html_to_pdf_playwright(html_file_path, pdf_file_path):
+    """Convert HTML to PDF using Playwright"""
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            
+            # Load HTML file
+            page.goto(f"file://{os.path.abspath(html_file_path)}")
+            
+            # Generate PDF with forensic-appropriate settings
+            page.pdf(
+                path=pdf_file_path,
+                format='A4',
+                print_background=True,
+                margin={
+                    'top': '1cm',
+                    'right': '1cm', 
+                    'bottom': '1cm',
+                    'left': '1cm'
+                }
+            )
+            
+            browser.close()
+            print(f"✅ PDF generated: {os.path.basename(pdf_file_path)}")
+            return True
+    except Exception as e:
+        print(f"❌ PDF conversion failed for {os.path.basename(html_file_path)}: {e}")
+        return False
+
+def convert_html_to_pdf(html_file_path, pdf_file_path):
+    """Convert HTML to PDF using available method"""
+    if not PDF_AVAILABLE:
+        print(f"⚠️ Skipping PDF generation for {os.path.basename(html_file_path)} - No PDF library available")
+        return False
+    
+    # Use the available method
+    if PDF_METHOD == "playwright":
+        return convert_html_to_pdf_playwright(html_file_path, pdf_file_path)
+    else:
+        return convert_html_to_pdf_weasyprint(html_file_path, pdf_file_path)
+
+def create_pdf_directory(case_folder_path):
+    """Create Reports pdf directory in the case folder"""
+    pdf_dir = os.path.join(case_folder_path, 'Reports pdf')
+    if not os.path.exists(pdf_dir):
+        os.makedirs(pdf_dir)
+        print(f"📁 Created PDF directory: {pdf_dir}")
+    return pdf_dir
+
+def convert_all_html_to_pdf(final_reports_dir, case_folder_path):
+    """Convert all HTML files in Final_Reports to PDFs in Reports pdf folder"""
+    if not PDF_AVAILABLE:
+        print("⚠️ Skipping PDF generation - No PDF library available")
+        return []
+    
+    # Create PDF directory
+    pdf_dir = create_pdf_directory(case_folder_path)
+    
+    # Find all HTML files in Final_Reports
+    html_pattern = os.path.join(final_reports_dir, "FILLED_*.html")
+    html_files = glob.glob(html_pattern)
+    
+    if not html_files:
+        print("⚠️ No HTML files found to convert to PDF")
+        return []
+    
+    print(f"\n📄 Converting {len(html_files)} HTML files to PDF...")
+    successful_pdfs = []
+    
+    for html_file in html_files:
+        # Generate PDF filename
+        html_filename = os.path.basename(html_file)
+        pdf_filename = html_filename.replace('.html', '.pdf')
+        pdf_file_path = os.path.join(pdf_dir, pdf_filename)
+        
+        # Convert to PDF
+        if convert_html_to_pdf(html_file, pdf_file_path):
+            successful_pdfs.append(pdf_file_path)
+    
+    print(f"✅ Successfully generated {len(successful_pdfs)} PDF files in: {pdf_dir}")
+    return successful_pdfs
+
 def read_questions_file():
-    """Read the most recent questions.txt file"""
-    # Look for questions files in the new Results/CASE_*/Questions directory structure
-    pattern = os.path.join('..', '..', 'Results', 'CASE_*', 'Questions', '*.txt')
+    """Read the questions.txt file"""
+    # Look for questions.txt files in the new Results/CASE_*/Questions directory structure
+    pattern = os.path.join('..', '..', 'Results', 'CASE_*', 'Questions', 'questions.txt')
     question_files = glob.glob(pattern)
     
     if not question_files:
-        print("No question files found in Results directory. Looking in old evidence directory...")
+        print("No questions.txt files found in Results directory. Looking in old evidence directory...")
         # Fallback to old structure for backward compatibility
-        pattern = os.path.join('..', '..', 'evidence', 'Results', 'Questions', '*.txt')
+        pattern = os.path.join('..', '..', 'evidence', 'Results', 'Questions', 'questions.txt')
         question_files = glob.glob(pattern)
         
     if not question_files:
-        print("No question files found in evidence directory either...")
-        pattern = os.path.join('..', '..', 'evidence', '*.txt')
+        print("No questions.txt files found in evidence directory either...")
+        pattern = os.path.join('..', '..', 'evidence', 'questions.txt')
         question_files = glob.glob(pattern)
         
     if not question_files:
-        print("No question files found. Please run q_script.py first.")
+        print("No questions.txt files found. Please run q_script.py first.")
         return None
     
     # Sort by modification time (newest first)
@@ -891,6 +1010,31 @@ def main():
     print(f"Form generation complete. Generated {len(generated_files)} files:")
     for file_path in generated_files:
         print(f"  - {os.path.basename(file_path)}")
+    
+    # Extract case folder path for PDF generation
+    case_folder_path = None
+    if 'Results' in questions_file_path and 'CASE_' in questions_file_path:
+        parts = questions_file_path.split(os.sep)
+        for i, part in enumerate(parts):
+            if part.startswith('CASE_'):
+                case_folder_path = os.path.join('..', '..', 'Results', part)
+                break
+    
+    # Generate PDFs if case folder is found
+    if case_folder_path and os.path.exists(case_folder_path):
+        print(f"\n🔄 Starting PDF generation...")
+        pdf_files = convert_all_html_to_pdf(output_dir, case_folder_path)
+        
+        if pdf_files:
+            print(f"\n📋 PDF Summary:")
+            print(f"  📁 PDF Directory: {os.path.join(case_folder_path, 'Reports pdf')}")
+            print(f"  📄 PDFs Generated: {len(pdf_files)}")
+            for pdf_file in pdf_files:
+                print(f"    - {os.path.basename(pdf_file)}")
+        else:
+            print("⚠️ No PDFs were generated")
+    else:
+        print("⚠️ Could not determine case folder for PDF generation")
 
 if __name__ == "__main__":
     main()
