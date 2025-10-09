@@ -308,143 +308,6 @@ run_sequential_workflow() {
     return 0
 }
 
-# Function to run simultaneous workflow (automated)
-run_simultaneous_workflow() {
-    local evidence_path="$1"
-    local memory_path="$2"
-    
-    print_step "SIMULTANEOUS WORKFLOW: Automated Evidence Collection + Forensic Analysis"
-    echo ""
-    
-    # Create case directory
-    local case_dir=$(create_case_directory)
-    local case_id=$(basename "$case_dir")
-    
-    print_info "Created case: $case_id"
-    print_info "Case directory: $case_dir"
-    echo ""
-    
-    # Create automated evidence collection form
-    print_progress "Creating automated evidence collection form..."
-    
-    local questions_dir="$case_dir/Questions"
-    local timestamp=$(date +%Y%m%d_%H%M%S)
-    local form_file="$questions_dir/automated_evidence_form_$timestamp.txt"
-    
-    cat > "$form_file" << EOF
-Digital Evidence Collection & Chain of Custody Form (AUTOMATED)
-================================================================
-Case ID: $case_id
-Generated: $(date '+%Y-%m-%d %H:%M:%S')
-Case Directory: $case_dir
-Evidence File: $evidence_path
-Memory File: ${memory_path:-"Not provided"}
-================================================================
-
-AUTOMATED COLLECTION - MINIMAL DATA
-Case Name / No: AUTO_$case_id
-Authorized Officer: Automated System
-Name of Assessee / Party: TBD
-Premise Address: TBD
-Start Date & Time: $(date '+%d-%m-%Y %H:%M')
-Examiner's Name: EDITH-Automater System
-Device Type: Unknown
-Forensic Works Performed: Data Acquisition, Data Extraction, Data Analysis
-Analysis Timestamp: $(date '+%Y-%m-%d %H:%M:%S')
-
-METADATA
-========
-File created: $(date '+%Y-%m-%d %H:%M:%S')
-Script version: edith-automater.sh v2.0
-Case ID: $case_id
-Case directory: $case_dir
-EOF
-    
-    print_success "Automated evidence form created: $form_file"
-    echo ""
-    
-    # Run forensic analysis
-    print_progress "Starting forensic analysis..."
-    
-    if ! run_forensic_analysis "$evidence_path" "$memory_path" "$case_dir" "$case_id"; then
-        print_error "Forensic analysis failed."
-        return 1
-    fi
-    
-    print_success "Simultaneous workflow completed successfully!"
-    print_info "All results saved in: $case_dir"
-    
-    return 0
-}
-
-# Function to show system requirements
-show_system_requirements() {
-    print_step "System Requirements Check"
-    echo ""
-    
-    echo -e "${WHITE}Checking system requirements...${NC}"
-    echo ""
-    
-    # Check Python 3
-    if command -v python3 &> /dev/null; then
-        local python_version=$(python3 --version 2>&1)
-        print_success "Python 3: $python_version"
-    else
-        print_error "Python 3: Not installed"
-    fi
-    
-    # Check required Python modules
-    local modules=("datetime" "os" "sys" "subprocess" "argparse" "asyncio")
-    
-    for module in "${modules[@]}"; do
-        if python3 -c "import $module" 2>/dev/null; then
-            print_success "Python module '$module': Available"
-        else
-            print_error "Python module '$module': Missing"
-        fi
-    done
-    
-    # Check forensic tools (optional)
-    echo ""
-    echo -e "${WHITE}Checking optional forensic tools...${NC}"
-    
-    local tools=("bulk_extractor" "mmls" "fls" "fsstat" "tsk_recover")
-    
-    for tool in "${tools[@]}"; do
-        if command -v "$tool" &> /dev/null; then
-            print_success "Forensic tool '$tool': Installed"
-        else
-            print_warning "Forensic tool '$tool': Not installed (optional)"
-        fi
-    done
-    
-    # Check project structure
-    echo ""
-    echo -e "${WHITE}Checking project structure...${NC}"
-    
-    local required_dirs=("$ORCHESTRATOR_DIR" "$TOOLS_DIR" "$SCRIPTS_DIR")
-    local required_files=("$ORCHESTRATOR_SCRIPT" "$SCRIPTS_DIR/q_script.py" "$SCRIPTS_DIR/script_3.py")
-    
-    for dir in "${required_dirs[@]}"; do
-        if [ -d "$dir" ]; then
-            print_success "Directory: $(basename "$dir")"
-        else
-            print_error "Directory missing: $(basename "$dir")"
-        fi
-    done
-    
-    for file in "${required_files[@]}"; do
-        if [ -f "$file" ]; then
-            print_success "Script: $(basename "$file")"
-        else
-            print_error "Script missing: $(basename "$file")"
-        fi
-    done
-    
-    echo ""
-    print_info "System check completed."
-}
-
 # Function to show help
 show_help() {
     print_banner
@@ -458,9 +321,6 @@ show_help() {
     
     echo -e "${CYAN}WORKFLOW OPTIONS:${NC}"
     echo "  1. Sequential    - Interactive evidence collection followed by automated analysis"
-    echo "  2. Simultaneous  - Fully automated parallel execution (fastest)"
-    echo "  3. Evidence Only - Interactive evidence collection form only"
-    echo "  4. Forensic Only - Automated forensic analysis only"
     echo ""
     
     echo -e "${CYAN}SUPPORTED FILE FORMATS:${NC}"
@@ -479,7 +339,6 @@ show_help() {
     echo -e "${CYAN}COMMAND LINE USAGE:${NC}"
     echo "  ./edith-automater.sh                                    # Interactive menu"
     echo "  ./edith-automater.sh sequential --evidence file.E01    # Sequential workflow"
-    echo "  ./edith-automater.sh simultaneous --evidence file.E01  # Simultaneous workflow"
     echo "  ./edith-automater.sh list-cases                        # List all cases"
     echo "  ./edith-automater.sh help                              # Show this help"
     echo ""
@@ -511,31 +370,16 @@ show_main_menu() {
     
     echo -e "${WHITE}Main Menu - Choose Your Forensic Workflow:${NC}"
     echo ""
-    echo -e "${GREEN} 1.${NC} 🚀 Sequential Workflow"
+    echo -e "${GREEN} 1.${NC} Sequential Workflow"
     echo -e "    ${CYAN}Interactive evidence collection → Automated forensic analysis${NC}"
     echo ""
-    echo -e "${GREEN} 2.${NC} ⚡ Simultaneous Workflow"
-    echo -e "    ${CYAN}Fully automated parallel execution (fastest option)${NC}"
-    echo ""
-    echo -e "${GREEN} 3.${NC} 📝 Evidence Collection Only"
-    echo -e "    ${CYAN}Interactive form to document evidence collection${NC}"
-    echo ""
-    echo -e "${GREEN} 4.${NC} 🔍 Forensic Analysis Only"
-    echo -e "    ${CYAN}Run forensic tools on existing evidence${NC}"
-    echo ""
-    echo -e "${GREEN} 5.${NC} 📁 Case Management"
+    echo -e "${GREEN} 2.${NC} Case Management"
     echo -e "    ${CYAN}List, view, and manage existing cases${NC}"
     echo ""
-    echo -e "${GREEN} 6.${NC} ⚙️  System Information"
-    echo -e "    ${CYAN}Check system requirements and tool availability${NC}"
-    echo ""
-    echo -e "${GREEN} 7.${NC} 🔧 Advanced Options"
-    echo -e "    ${CYAN}Custom commands and advanced features${NC}"
-    echo ""
-    echo -e "${GREEN} 8.${NC} ❓ Help & Documentation"
+    echo -e "${GREEN} 3.${NC} Help & Documentation"
     echo -e "    ${CYAN}User guide and command reference${NC}"
     echo ""
-    echo -e "${GREEN} 9.${NC} 🚪 Exit"
+    echo -e "${GREEN} 4.${NC} Exit"
     echo -e "    ${CYAN}Close EDITH-Automater${NC}"
     echo ""
     echo -e "${BLUE}=================================================================${NC}"
@@ -592,34 +436,6 @@ if [ $# -gt 0 ]; then
             run_sequential_workflow "$evidence_path" "$memory_path"
             exit $?
             ;;
-        "simultaneous")
-            if [ -z "$2" ] || [ "$2" != "--evidence" ] || [ -z "$3" ]; then
-                print_error "Usage: $0 simultaneous --evidence <evidence_file> [--memory <memory_file>]"
-                exit 1
-            fi
-            
-            evidence_path="$3"
-            memory_path=""
-            
-            if [ "$4" = "--memory" ] && [ -n "$5" ]; then
-                memory_path="$5"
-            fi
-            
-            if ! validate_file "$evidence_path" "Evidence"; then
-                exit 1
-            fi
-            
-            if [ -n "$memory_path" ] && ! validate_file "$memory_path" "Memory"; then
-                exit 1
-            fi
-            
-            run_simultaneous_workflow "$evidence_path" "$memory_path"
-            exit $?
-            ;;
-        "evidence-only")
-            run_evidence_collection
-            exit $?
-            ;;
         "list-cases")
             list_all_cases
             pause
@@ -643,7 +459,7 @@ fi
 while true; do
     show_main_menu
     
-    read -p "Enter your choice (1-9): " choice
+    read -p "Enter your choice (1-4): " choice
     
     case $choice in
         1)
@@ -671,138 +487,23 @@ while true; do
             pause
             ;;
         2)
-            # Simultaneous Workflow
-            print_step "Simultaneous Workflow Selected"
-            echo ""
-            
-            read -p "Enter evidence file path: " evidence_path
-            
-            if ! validate_file "$evidence_path" "Evidence"; then
-                pause
-                continue
-            fi
-            
-            read -p "Enter memory file path (optional, press Enter to skip): " memory_path
-            
-            if [ -n "$memory_path" ] && ! validate_file "$memory_path" "Memory"; then
-                print_warning "Memory file not found, continuing without memory analysis"
-                memory_path=""
-            fi
-            
-            echo ""
-            run_simultaneous_workflow "$evidence_path" "$memory_path"
-            
-            pause
-            ;;
-        3)
-            # Evidence Collection Only
-            run_evidence_collection
-            pause
-            ;;
-        4)
-            # Forensic Analysis Only
-            print_step "Forensic Analysis Only Selected"
-            echo ""
-            
-            read -p "Enter evidence file path: " evidence_path
-            
-            if ! validate_file "$evidence_path" "Evidence"; then
-                pause
-                continue
-            fi
-            
-            read -p "Enter memory file path (optional, press Enter to skip): " memory_path
-            
-            if [ -n "$memory_path" ] && ! validate_file "$memory_path" "Memory"; then
-                print_warning "Memory file not found, continuing without memory analysis"
-                memory_path=""
-            fi
-            
-            echo ""
-            print_info "Choose an option:"
-            echo "1. Create new case"
-            echo "2. Use existing case"
-            
-            read -p "Enter choice (1-2): " analysis_choice
-            
-            case $analysis_choice in
-                1)
-                    # Create new case
-                    case_dir=$(create_case_directory)
-                    case_id=$(basename "$case_dir")
-                    run_forensic_analysis "$evidence_path" "$memory_path" "$case_dir" "$case_id"
-                    ;;
-                2)
-                    # Use existing case
-                    echo ""
-                    list_all_cases
-                    echo ""
-                    read -p "Enter case ID (e.g., CASE_20251008_123456): " existing_case_id
-                    
-                    existing_case_dir="$RESULTS_DIR/$existing_case_id"
-                    if [ -d "$existing_case_dir" ]; then
-                        run_forensic_analysis "$evidence_path" "$memory_path" "$existing_case_dir" "$existing_case_id"
-                    else
-                        print_error "Case not found: $existing_case_id"
-                    fi
-                    ;;
-                *)
-                    print_error "Invalid choice"
-                    ;;
-            esac
-            
-            pause
-            ;;
-        5)
             # Case Management
             list_all_cases
             pause
             ;;
-        6)
-            # System Information
-            show_system_requirements
-            pause
-            ;;
-        7)
-            # Advanced Options
-            print_step "Advanced Options"
-            echo ""
-            echo "Available advanced commands:"
-            echo "• evidence-auto    - Automated evidence collection"
-            echo "• forensic-auto    - Automated forensic analysis with case ID"
-            echo "• Custom orchestrator commands"
-            echo ""
-            echo "Example commands:"
-            echo "  evidence-auto"
-            echo "  forensic-auto --evidence /path/file.E01 --case CASE_20251008_123456"
-            echo "  sequential --evidence /path/file.E01 --memory /path/mem.mem"
-            echo ""
-            
-            read -p "Enter command: " custom_command
-            
-            if [ -n "$custom_command" ]; then
-                print_info "Executing: $custom_command"
-                cd "$ORCHESTRATOR_DIR"
-                python3 orchestrator.py $custom_command
-            else
-                print_warning "No command entered"
-            fi
-            
-            pause
-            ;;
-        8)
+        3)
             # Help & Documentation
             show_help
             pause
             ;;
-        9)
+        4)
             # Exit
             print_info "Thank you for using EDITH-Automater!"
             print_info "Your forensic cases are saved in: $RESULTS_DIR"
             exit 0
             ;;
         *)
-            print_error "Invalid choice. Please enter a number between 1 and 9."
+            print_error "Invalid choice. Please enter a number between 1 and 4."
             pause
             ;;
     esac
