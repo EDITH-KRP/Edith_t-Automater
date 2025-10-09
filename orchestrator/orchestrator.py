@@ -363,13 +363,30 @@ class EDITHOrchestrator:
             status = "error"
             message = f"Automated analysis failed: {e}"
 
+        # Run report generation if forensic analysis was successful
+        report_result = None
+        if status in ["success", "warning"]:
+            print(f"\n[INFO] Starting automatic report generation...")
+            try:
+                report_result = await self.run_report_generation(case_id, case_dir)
+                if report_result["status"] == "success":
+                    print(f"[SUCCESS] Report generation completed successfully!")
+                elif report_result["status"] == "warning":
+                    print(f"[WARNING] Report generation completed with warnings")
+                else:
+                    print(f"[ERROR] Report generation failed: {report_result.get('message', 'Unknown error')}")
+            except Exception as e:
+                print(f"[ERROR] Report generation failed: {e}")
+                report_result = {"status": "error", "message": str(e)}
+
         return {
             "status": status,
             "case_id": case_id,
             "case_dir": str(case_dir),
             "message": message,
             "evidence_path": evidence_path,
-            "memory_path": memory_path
+            "memory_path": memory_path,
+            "report_generation": report_result
         }
 
     async def run_forensic_analysis_interactive(self, evidence_path, memory_path=None, case_id=None):
@@ -434,6 +451,74 @@ class EDITHOrchestrator:
             "memory_path": memory_path
         }
 
+    async def run_report_generation(self, case_id, case_dir):
+        """Run report generation using report_gen.py"""
+        self.logger.info("Starting Report Generation")
+
+        print(f"\n{'='*80}")
+        print("EDITH-Automater: Report Generation")
+        print(f"{'='*80}")
+        print(f"Case ID: {case_id}")
+        print(f"Case Directory: {case_dir}")
+        print(f"{'='*80}")
+
+        try:
+            scripts_dir = self.project_root / "tools" / "Scripts"
+            original_cwd = os.getcwd()
+
+            print(f"\n[INFO] Starting report generation...")
+            print(f"[INFO] Running report_gen.py...")
+
+            try:
+                os.chdir(scripts_dir)
+
+                # Run report_gen.py
+                python_executable = sys.executable
+
+                result = subprocess.run([
+                    python_executable, 'report_gen.py'
+                ], capture_output=True, text=True, timeout=600)  # 10 minute timeout
+
+                if result.returncode == 0:
+                    print(f"\n[SUCCESS] Report generation completed successfully!")
+                    
+                    # Show report generation summary from stdout
+                    if result.stdout:
+                        lines = result.stdout.split('\n')
+                        print(f"\n[REPORT SUMMARY]:")
+                        for line in lines:
+                            if line.strip() and ("generated" in line.lower() or "pdf" in line.lower() or "success" in line.lower()):
+                                print(f"  {line.strip()}")
+                    
+                    status = "success"
+                    message = "Report generation completed successfully"
+                else:
+                    print(f"\n[WARNING] Report generation completed with warnings")
+                    if result.stderr:
+                        print(f"[STDERR] {result.stderr}")
+                    status = "warning"
+                    message = "Report generation completed with warnings"
+
+            finally:
+                os.chdir(original_cwd)
+
+        except subprocess.TimeoutExpired:
+            print(f"\n[ERROR] Report generation timed out after 10 minutes")
+            status = "timeout"
+            message = "Report generation timed out"
+        except Exception as e:
+            print(f"\n[ERROR] Failed to run report generation: {e}")
+            self.logger.error(f"Report generation failed for case: {case_id}: {e}")
+            status = "error"
+            message = f"Report generation failed: {e}"
+
+        return {
+            "status": status,
+            "case_id": case_id,
+            "case_dir": str(case_dir),
+            "message": message
+        }
+
     async def run_sequential_workflow(self, evidence_path, memory_path=None, interactive=True):
         """Run evidence collection followed by forensic analysis sequentially"""
         self.logger.info("Starting Sequential Workflow")
@@ -480,6 +565,10 @@ class EDITHOrchestrator:
         print(f"{'='*80}")
         print(f"[STEP 1] Evidence Collection: {evidence_result['status']}")
         print(f"[STEP 2] Forensic Analysis: {forensic_result['status']}")
+        
+        # Show report generation status if available
+        if forensic_result.get('report_generation'):
+            print(f"[STEP 3] Report Generation: {forensic_result['report_generation']['status']}")
 
         if evidence_result["status"] == "success" and forensic_result["status"] == "success":
             overall_status = "success"
@@ -493,6 +582,9 @@ class EDITHOrchestrator:
 
         if case_dir:
             print(f"[INFO] All results saved to: {case_dir}")
+            # Show report generation summary if available
+            if forensic_result.get('report_generation') and forensic_result['report_generation']['status'] == "success":
+                print(f"[INFO] Reports and PDFs generated automatically!")
 
         return {
             "status": overall_status,
@@ -572,7 +664,25 @@ class EDITHOrchestrator:
                 overall_status = "failed"
                 print(f"\n[ERROR] Both workflows failed")
 
+            # Run report generation if any workflow was successful
+            report_result = None
+            if overall_status in ["success", "partial_success"]:
+                print(f"\n[INFO] Starting automatic report generation...")
+                try:
+                    report_result = await self.run_report_generation(case_id, case_dir)
+                    if report_result["status"] == "success":
+                        print(f"[SUCCESS] Report generation completed successfully!")
+                    elif report_result["status"] == "warning":
+                        print(f"[WARNING] Report generation completed with warnings")
+                    else:
+                        print(f"[ERROR] Report generation failed: {report_result.get('message', 'Unknown error')}")
+                except Exception as e:
+                    print(f"[ERROR] Report generation failed: {e}")
+                    report_result = {"status": "error", "message": str(e)}
+
             print(f"[INFO] All results saved to: {case_dir}")
+            if report_result and report_result["status"] == "success":
+                print(f"[INFO] Reports and PDFs generated automatically!")
 
             self.logger.info(f"Simultaneous workflow completed for case: {case_id} with status: {overall_status}")
 
@@ -581,7 +691,8 @@ class EDITHOrchestrator:
                 "case_id": case_id,
                 "case_dir": case_dir,
                 "evidence_collection": evidence_result if not isinstance(evidence_result, Exception) else str(evidence_result),
-                "forensic_analysis": forensic_result if not isinstance(forensic_result, Exception) else str(forensic_result)
+                "forensic_analysis": forensic_result if not isinstance(forensic_result, Exception) else str(forensic_result),
+                "report_generation": report_result
             }
 
         except Exception as e:
@@ -610,6 +721,7 @@ COMMANDS:
     evidence-auto          Run evidence collection only (automated)
     forensic-only          Run forensic analysis only (interactive)
     forensic-auto          Run forensic analysis only (automated)
+    report-only            Run report generation only (for existing case)
     list-cases             List all available cases
     help                   Show this help message
 
@@ -634,6 +746,9 @@ EXAMPLES:
     # Run forensic analysis only (automated)
     python orchestrator.py forensic-auto --evidence /path/to/charlie.E01 --case CASE_20251007_123456
 
+    # Run report generation only (for existing case)
+    python orchestrator.py report-only --case CASE_20251007_123456
+
     # List all cases
     python orchestrator.py list-cases
 
@@ -642,10 +757,12 @@ WORKFLOW MODES:
     - sequential: Runs evidence collection first, then forensic analysis (interactive or automated)
     - evidence-only: Only creates evidence collection forms (interactive or automated)
     - forensic-only: Only runs forensic analysis (interactive or automated)
+    - report-only: Only runs report generation for existing case data
 
 INTEGRATION:
     - Uses q_script.py for interactive evidence collection
     - Uses script_3.py for forensic analysis workflow
+    - Uses report_gen.py for automatic report and PDF generation
     - Manages case directories and results automatically
     - Supports both interactive and automated modes
         """
@@ -750,6 +867,21 @@ async def main():
                 memory_path=args.memory
             )
             print(f"\n[FINAL] Automated forensic analysis completed: {case_id}")
+
+        elif args.command == 'report-only':
+            if not args.case:
+                print("[ERROR] --case parameter required for report-only workflow")
+                print("Usage: python orchestrator.py report-only --case CASE_20251007_123456")
+                return
+            
+            case_id = args.case
+            case_dir = str(orchestrator.results_dir / case_id)
+            if not Path(case_dir).exists():
+                print(f"[ERROR] Case directory not found: {case_dir}")
+                return
+                
+            result = await orchestrator.run_report_generation(case_id, case_dir)
+            print(f"\n[FINAL] Report generation completed: {case_id}")
 
         elif args.command == 'list-cases':
             cases = orchestrator.list_all_cases()

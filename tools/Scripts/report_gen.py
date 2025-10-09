@@ -12,68 +12,80 @@ try:
     from playwright.sync_api import sync_playwright
     PDF_AVAILABLE = True
     PDF_METHOD = "playwright"
-    print("✅ Playwright available for PDF generation")
+    print("[OK] Playwright available for PDF generation")
 except ImportError:
     try:
         import weasyprint
         PDF_AVAILABLE = True
         PDF_METHOD = "weasyprint"
-        print("✅ WeasyPrint available for PDF generation")
+        print("[OK] WeasyPrint available for PDF generation")
     except ImportError:
         PDF_AVAILABLE = False
-        print("⚠️ No PDF library found. Install playwright for PDF generation")
+        print("[WARN] No PDF library found. Install playwright for PDF generation")
         print("   pip install playwright && playwright install chromium")
 
 def convert_html_to_pdf_weasyprint(html_file_path, pdf_file_path):
-    """Convert HTML file to PDF using WeasyPrint"""
+    """Convert HTML file to PDF using WeasyPrint respecting existing template CSS"""
     try:
-        # Read HTML content
+        # Read HTML content without modification to preserve template CSS
         with open(html_file_path, 'r', encoding='utf-8') as f:
             html_content = f.read()
         
-        # Convert to PDF
+        # Convert to PDF using original HTML content
         html_doc = weasyprint.HTML(string=html_content, base_url=os.path.dirname(html_file_path))
         html_doc.write_pdf(pdf_file_path)
-        print(f"✅ PDF generated: {os.path.basename(pdf_file_path)}")
+        print(f"[OK] PDF generated: {os.path.basename(pdf_file_path)}")
         return True
     except Exception as e:
-        print(f"❌ PDF conversion failed for {os.path.basename(html_file_path)}: {e}")
+        print(f"[ERROR] PDF conversion failed for {os.path.basename(html_file_path)}: {e}")
         return False
 
 def convert_html_to_pdf_playwright(html_file_path, pdf_file_path):
-    """Convert HTML to PDF using Playwright"""
+    """Convert HTML to PDF using Playwright respecting existing HTML template CSS"""
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page()
             
-            # Load HTML file
+            # Set viewport to exact A4 dimensions in pixels (210mm x 297mm at 96 DPI)
+            page.set_viewport_size({"width": 794, "height": 1123})
+            
+            # Load HTML file without modification to preserve template CSS
             page.goto(f"file://{os.path.abspath(html_file_path)}")
             
-            # Generate PDF with forensic-appropriate settings
+            # Wait for content to load properly
+            page.wait_for_load_state('networkidle')
+            
+            # Generate PDF with settings that respect the HTML template's CSS
             page.pdf(
                 path=pdf_file_path,
                 format='A4',
                 print_background=True,
+                prefer_css_page_size=True,  # Use CSS @page settings from HTML
                 margin={
-                    'top': '1cm',
-                    'right': '1cm', 
-                    'bottom': '1cm',
-                    'left': '1cm'
-                }
+                    'top': '0mm',
+                    'right': '0mm', 
+                    'bottom': '0mm',
+                    'left': '0mm'
+                },
+                scale=1.0,
+                display_header_footer=False,
+                width='210mm',
+                height='297mm'
             )
             
             browser.close()
-            print(f"✅ PDF generated: {os.path.basename(pdf_file_path)}")
+                
+            print(f"[OK] PDF generated: {os.path.basename(pdf_file_path)}")
             return True
     except Exception as e:
-        print(f"❌ PDF conversion failed for {os.path.basename(html_file_path)}: {e}")
+        print(f"[ERROR] PDF conversion failed for {os.path.basename(html_file_path)}: {e}")
         return False
 
 def convert_html_to_pdf(html_file_path, pdf_file_path):
     """Convert HTML to PDF using available method"""
     if not PDF_AVAILABLE:
-        print(f"⚠️ Skipping PDF generation for {os.path.basename(html_file_path)} - No PDF library available")
+        print(f"[WARN] Skipping PDF generation for {os.path.basename(html_file_path)} - No PDF library available")
         return False
     
     # Use the available method
@@ -87,13 +99,13 @@ def create_pdf_directory(case_folder_path):
     pdf_dir = os.path.join(case_folder_path, 'Reports pdf')
     if not os.path.exists(pdf_dir):
         os.makedirs(pdf_dir)
-        print(f"📁 Created PDF directory: {pdf_dir}")
+        print(f"[DIR] Created PDF directory: {pdf_dir}")
     return pdf_dir
 
 def convert_all_html_to_pdf(final_reports_dir, case_folder_path):
     """Convert all HTML files in Final_Reports to PDFs in Reports pdf folder"""
     if not PDF_AVAILABLE:
-        print("⚠️ Skipping PDF generation - No PDF library available")
+        print("[WARN] Skipping PDF generation - No PDF library available")
         return []
     
     # Create PDF directory
@@ -107,7 +119,7 @@ def convert_all_html_to_pdf(final_reports_dir, case_folder_path):
         print("⚠️ No HTML files found to convert to PDF")
         return []
     
-    print(f"\n📄 Converting {len(html_files)} HTML files to PDF...")
+    print(f"\n[PDF] Converting {len(html_files)} HTML files to PDF...")
     successful_pdfs = []
     
     for html_file in html_files:
@@ -120,7 +132,7 @@ def convert_all_html_to_pdf(final_reports_dir, case_folder_path):
         if convert_html_to_pdf(html_file, pdf_file_path):
             successful_pdfs.append(pdf_file_path)
     
-    print(f"✅ Successfully generated {len(successful_pdfs)} PDF files in: {pdf_dir}")
+    print(f"[OK] Successfully generated {len(successful_pdfs)} PDF files in: {pdf_dir}")
     return successful_pdfs
 
 def read_questions_file():
@@ -925,19 +937,25 @@ def generate_master_copy(data, timestamp, output_dir):
     html_content = html_content.replace('<p><!--This Seagate One Touch 1TB External HDD Contains Below mentioned data. --></p>', 
                                      f'<p>{device_description}</p>')
     
-    # Fill items list - Keep empty for manual completion
-    # Items will be filled manually during the investigation process
+    # Fill items list with device type and assessee name
+    if device_type and assessee_name:
+        # Create the first item with device type and assessee name
+        first_item = f"{assessee_name}_{device_type}_01"
+        html_content = html_content.replace('<li><!-- Assessee_Name_Laptop_01 --></li>', 
+                                         f'<li>{first_item}</li>')
+    else:
+        # If data is missing, keep the first item empty
+        html_content = html_content.replace('<li><!-- Assessee_Name_Laptop_01 --></li>', '<li></li>')
     
-    # Clean up all item placeholders to leave them empty
-    item_placeholders = [
-        '<!-- Assessee_Name_Laptop_01 -->',
+    # Clean up remaining item placeholders to leave them empty for manual completion
+    remaining_placeholders = [
         '<!--Assessee_Name_Laptop_02 -->',
         '<!--Assessee_Name_Apple_Mobile -->',
         '<!--Assessee_Name_Samsung_Mobile -->',
         '<!--assessee@gmail.com -->'
     ]
     
-    for placeholder in item_placeholders:
+    for placeholder in remaining_placeholders:
         # Replace placeholders with empty content but keep the list structure
         html_content = html_content.replace(f'<li>{placeholder}</li>', '<li></li>')
     
@@ -1022,19 +1040,19 @@ def main():
     
     # Generate PDFs if case folder is found
     if case_folder_path and os.path.exists(case_folder_path):
-        print(f"\n🔄 Starting PDF generation...")
+        print(f"\n[INFO] Starting PDF generation...")
         pdf_files = convert_all_html_to_pdf(output_dir, case_folder_path)
         
         if pdf_files:
-            print(f"\n📋 PDF Summary:")
-            print(f"  📁 PDF Directory: {os.path.join(case_folder_path, 'Reports pdf')}")
-            print(f"  📄 PDFs Generated: {len(pdf_files)}")
+            print(f"\n[SUMMARY] PDF Summary:")
+            print(f"  [DIR] PDF Directory: {os.path.join(case_folder_path, 'Reports pdf')}")
+            print(f"  [PDF] PDFs Generated: {len(pdf_files)}")
             for pdf_file in pdf_files:
                 print(f"    - {os.path.basename(pdf_file)}")
         else:
-            print("⚠️ No PDFs were generated")
+            print("[WARN] No PDFs were generated")
     else:
-        print("⚠️ Could not determine case folder for PDF generation")
+        print("[WARN] Could not determine case folder for PDF generation")
 
 if __name__ == "__main__":
     main()
