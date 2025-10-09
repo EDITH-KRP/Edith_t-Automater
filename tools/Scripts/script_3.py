@@ -30,37 +30,37 @@ def setup_results_structure(case_id=None):
     use_existing = os.environ.get('EDITH_USE_EXISTING_CASE', 'false').lower() == 'true'
     existing_case_dir = os.environ.get('EDITH_CASE_DIR')
     existing_case_id = os.environ.get('EDITH_CASE_ID')
-    
+
     if use_existing and existing_case_dir and os.path.exists(existing_case_dir):
-        print(f"📁 Using existing case directory: {existing_case_dir}")
+        print(f" Using existing case directory: {existing_case_dir}")
         case_results_dir = existing_case_dir
         case_id = existing_case_id or case_id
     else:
         # Original behavior - create new case directory
         if case_id is None:
             case_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+
         base_results_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "Results")
         case_results_dir = os.path.join(base_results_dir, f"CASE_{case_id}")
-    
+
     # Define tool-specific subdirectories
     subdirs = {
         'hashdeep': os.path.join(case_results_dir, "HashDeep_output"),
-        'autopsy': os.path.join(case_results_dir, "Autopsy_output"), 
+        'autopsy': os.path.join(case_results_dir, "Autopsy_output"),
         'volatility': os.path.join(case_results_dir, "Volatility_output"),
         'exiftool': os.path.join(case_results_dir, "ExifTool_output"),
         'bulk_extractor': os.path.join(case_results_dir, "BulkExtractor_output"),
         'reports': os.path.join(case_results_dir, "Final_Reports")
     }
-    
+
     # Create all directories
     for tool_name, dir_path in subdirs.items():
         os.makedirs(dir_path, exist_ok=True)
         if use_existing:
-            print(f"📁 Using existing: {os.path.relpath(dir_path)}")
+            print(f" Using existing: {os.path.relpath(dir_path)}")
         else:
-            print(f"📁 Created: {os.path.relpath(dir_path)}")
-    
+            print(f" Created: {os.path.relpath(dir_path)}")
+
     return case_results_dir, subdirs
 
 
@@ -69,21 +69,21 @@ def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
     Wrapper for bulk-extractor with custom output directory
     """
     import subprocess
-    
+
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # Valid scanners from bulk-extractor
     VALID_SCANNERS = ["email", "base16", "hiberfile", "outlook", "wordlist", "xor"]
-    
+
     # Build command with custom output directory
     cmd = ["bulk_extractor", "-o", output_dir]
     for scanner in VALID_SCANNERS:
         cmd.extend(["-E", scanner])
     cmd.append(evidence_path)
-    
+
     print(f"    [+] Running: {' '.join(cmd)}")
-    
+
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
         return True
@@ -104,14 +104,14 @@ def run_workflow(evidence_path, memory_file=None):
     # Check if using existing case or generating new case ID
     use_existing = os.environ.get('EDITH_USE_EXISTING_CASE', 'false').lower() == 'true'
     existing_case_id = os.environ.get('EDITH_CASE_ID')
-    
+
     if use_existing and existing_case_id:
         case_id = existing_case_id.replace('CASE_', '')  # Remove CASE_ prefix if present
         print(f"Using existing case: CASE_{case_id}")
     else:
         case_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         print(f"Creating new case: CASE_{case_id}")
-    
+
     case_results_dir, subdirs = setup_results_structure(case_id)
 
     # 1. Run HashDeep (baseline hashing)
@@ -161,8 +161,8 @@ def run_workflow(evidence_path, memory_file=None):
         # Create ExifTool instance with custom output directory
         case_id_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         exif_tool = exiftool_auto.AutomatedExifTool(
-            case_id=f"CASE_{case_id_timestamp}", 
-            show_prompt=False, 
+            case_id=f"CASE_{case_id_timestamp}",
+            show_prompt=False,
             custom_result_dir=subdirs['exiftool']
         )
         exif_results = exif_tool.process_all_evidence()
@@ -179,21 +179,21 @@ def run_workflow(evidence_path, memory_file=None):
     try:
         print(f"[+] Extracting data from disk image: {os.path.basename(evidence_path)}")
         bulk_output = os.path.join(subdirs['bulk_extractor'], "be_results")
-        
+
         success = run_bulk_extractor_with_custom_output(evidence_path, bulk_output)
-        
+
         if success:
             print(f"[+] Bulk-Extractor analysis completed successfully")
-            print(f"    📁 Results: {bulk_output}")
-            
+            print(f"     Results: {bulk_output}")
+
             # Show what was extracted
             if os.path.exists(bulk_output):
                 files = os.listdir(bulk_output)
                 key_files = [f for f in files if f.endswith('.txt') and f != 'report.xml'][:5]
-                print(f"    📊 Key extractions: {', '.join(key_files)}")
+                print(f"     Key extractions: {', '.join(key_files)}")
         else:
             print("[-] Bulk-Extractor analysis failed")
-            
+
     except Exception as e:
         print(f"[-] Bulk-Extractor analysis failed: {e}")
         print("    [*] Continuing workflow...")
@@ -205,7 +205,7 @@ def run_workflow(evidence_path, memory_file=None):
     verify_results = hashdeep.main(evidence_path, output_path=verification_dir)
     print(f"[+] HashDeep verification completed. Report saved in: {verification_dir}")
 
-    print("\n✅ Full forensic workflow completed successfully!")
+    print("\n Full forensic workflow completed successfully!")
     print("   - Baseline hashes created")
     print("   - Autopsy analysis done")
     if memory_file:
@@ -215,12 +215,12 @@ def run_workflow(evidence_path, memory_file=None):
     print("   - Final verification passed")
 
     # Final cleanup: Remove any stray Evidence directories
-    print("\n🧹 Performing final cleanup...")
+    print("\n Performing final cleanup...")
     cleanup_paths = [
         "Evidence",  # Current directory
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "Evidence"),  # Script directory
     ]
-    
+
     for cleanup_path in cleanup_paths:
         if os.path.exists(cleanup_path):
             try:
@@ -247,7 +247,7 @@ if __name__ == "__main__":
     print("EDITH-Automater Forensic Workflow")
     print("="*80)
 
-    # ✅ Ask only once for both paths
+    # Ask only once for both paths
     evidence_path = input("Enter path to disk image (.E01/.dd/.raw): ").strip()
     memory_file = input("Enter path to memory dump file (leave blank to skip): ").strip()
     memory_file = memory_file if memory_file else None
