@@ -341,8 +341,7 @@ def main():
     print("="*50)
 
     # Generate filename with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"questions_{timestamp}.txt"
+    filename = f"questions.txt"
     questions_dir = subdirs['questions']
     full_path = os.path.join(questions_dir, filename)
 
