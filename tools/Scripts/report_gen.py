@@ -335,9 +335,15 @@ def generate_digital_evidence_form(data, timestamp, output_dir):
     start_date, start_time = extract_date_time(data.get("Start Date & Time", ""))
     end_date, end_time = extract_date_time(data.get("End Date & Time", ""))
     
-    # Device information
-    storage_master = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
-    make, model, size, serial_no = extract_device_info(storage_master)
+    # Device information - use victim device info instead of storage media
+    victim_device = data.get("Victim Device Make/Model/Size/Serial No", "")
+    
+    # Fallback to storage master copy if victim device info is not available (for backward compatibility)
+    if not victim_device:
+        victim_device = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
+        print("[WARN] Victim device information not found, using storage master copy info as fallback")
+    
+    make, model, size, serial_no = extract_device_info(victim_device)
     
     # RAM Collection
     ram_collected = data.get("Volatile Memory / RAM Collected (Yes/No)", "")

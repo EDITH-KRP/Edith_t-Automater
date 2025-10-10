@@ -178,6 +178,11 @@ def main():
         ["Laptop", "Desktop", "Server", "Other"],
         "Device Type (Laptop/Desktop/Server/Other)"
     )
+    
+    print("\nEnter victim device details")
+    print("Format: Make/Model/Size/Serial Number")
+    print("Example: Dell/Latitude E7450/500GB/XYZ789456123")
+    ask("Victim Device Make/Model/Size/Serial No")
 
     ask_choice(
         "What was the device status when seized?",
