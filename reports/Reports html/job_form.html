@@ -18,41 +18,51 @@
         .page {
             width: 210mm;
             min-height: 297mm;
-            margin: 20px auto;
+            margin: 0;
             background-color: white;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
             position: relative;
             box-sizing: border-box;
             border: 1px solid #000;
-            padding: 15mm;
+            padding: 15mm 10mm 20mm 10mm; /* Top Right Bottom Left */
         }
         
         @media print {
             body {
                 background: none;
+                margin: 0;
+                padding: 0;
             }
             .page {
                 margin: 0;
                 border: none;
                 box-shadow: none;
+                width: 100%;
+                height: 100%;
+                padding: 10mm;
             }
         }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 20px;
+            margin-bottom: 30px;
         }
         table, th, td {
             border: 1px solid black;
+            box-sizing: border-box;
         }
         th, td {
-            padding: 8px;
+            padding: 6px;
             text-align: left;
             vertical-align: middle;
             font-size: 11pt;
         }
         .header-row td {
             font-weight: bold;
+        }
+        /* Optimize table layout for A4 */
+        table {
+            table-layout: fixed;
         }
         /* Custom radio button styling */
         .custom-radio {
@@ -131,7 +141,7 @@
         <div class="watermark">INCOMETAX-INV</div>
         
         <!-- Title -->
-        <div style="text-align: center; font-weight: bold; font-size: 18pt; margin-bottom: 20px;">JOB FORM</div>
+        <div style="text-align: center; font-weight: bold; font-size: 22pt; margin-bottom: 30px;">JOB FORM</div>
         
         <!-- Basic Info Table -->
         <table>
@@ -249,31 +259,31 @@
                 <td style="width: 20%; font-weight: bold; text-align: center;">Action Taken</td>
             </tr>
             <tr>
-                <td style="height: 35px;"></td>
+                <td style="height: 45px;"></td>
                 <td></td>
                 <td></td>
                 <td></td>
             </tr>
             <tr>
-                <td style="height: 35px;"></td>
+                <td style="height: 45px;"></td>
                 <td></td>
                 <td></td>
                 <td></td>
             </tr>
             <tr>
-                <td style="height: 35px;"></td>
+                <td style="height: 45px;"></td>
                 <td></td>
                 <td></td>
                 <td></td>
             </tr>
             <tr>
-                <td style="height: 35px;"></td>
+                <td style="height: 45px;"></td>
                 <td></td>
                 <td></td>
                 <td></td>
             </tr>
             <tr>
-                <td style="height: 35px;"></td>
+                <td style="height: 45px;"></td>
                 <td></td>
                 <td></td>
                 <td></td>
@@ -289,19 +299,19 @@
                 <td style="width: 30%; font-weight: bold; text-align: center;">No. of HDD provided by<br>Income Tax Department</td>
             </tr>
             <tr>
-                <td style="text-align: center;">1 TB</td>
+                <td style="text-align: center; height: 35px;">1 TB</td>
                 <td></td>
                 <td></td>
                 <td></td>
             </tr>
             <tr>
-                <td style="text-align: center;">2 TB</td>
+                <td style="text-align: center; height: 35px;">2 TB</td>
                 <td></td>
                 <td></td>
                 <td></td>
             </tr>
             <tr>
-                <td style="text-align: center;">4 TB</td>
+                <td style="text-align: center; height: 35px;">4 TB</td>
                 <td></td>
                 <td></td>
                 <td></td>
@@ -322,12 +332,12 @@
             </tr>
             <tr>
                 <td style="text-align: center;">1.</td>
-                <td style="height: 35px;"></td>
+                <td style="height: 45px;"></td>
                 <td></td>
             </tr>
             <tr>
                 <td style="text-align: center;">2.</td>
-                <td style="height: 35px;"></td>
+                <td style="height: 45px;"></td>
                 <td></td>
             </tr>
             <tr>
@@ -338,14 +348,14 @@
         </table>
         
         <!-- Signature Section -->
-        <table style="margin-top: 30px;">
+        <table style="margin-top: 40px;">
             <tr>
                 <td style="width: 30%; font-weight: bold; text-align: center; padding: 10px;">Lead Forensic Examiner<br>Name & Signature</td>
-                <td style="width: 70%; height: 60px;"></td>
+                <td style="width: 70%; height: 80px;"></td>
             </tr>
             <tr>
                 <td style="width: 30%; font-weight: bold; text-align: center; padding: 10px;">Authorised Officer Name<br>& Signature</td>
-                <td style="width: 70%; height: 60px;"></td>
+                <td style="width: 70%; height: 80px;"></td>
             </tr>
         </table>
     </div>

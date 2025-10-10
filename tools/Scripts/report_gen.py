@@ -31,6 +31,15 @@ def convert_html_to_pdf_weasyprint(html_file_path, pdf_file_path):
         with open(html_file_path, 'r', encoding='utf-8') as f:
             html_content = f.read()
         
+        # Special handling for job_form to ensure it fills the page properly
+        is_job_form = "job_form" in os.path.basename(html_file_path).lower()
+        
+        # For job_form, ensure proper CSS is applied
+        if is_job_form and "@page" not in html_content:
+            # Add proper @page CSS if not already present
+            css_addition = "<style>@page {size: A4; margin: 0;}</style>"
+            html_content = html_content.replace("<head>", "<head>" + css_addition)
+        
         # Convert to PDF using original HTML content
         html_doc = weasyprint.HTML(string=html_content, base_url=os.path.dirname(html_file_path))
         html_doc.write_pdf(pdf_file_path)
@@ -43,12 +52,26 @@ def convert_html_to_pdf_weasyprint(html_file_path, pdf_file_path):
 def convert_html_to_pdf_playwright(html_file_path, pdf_file_path):
     """Convert HTML to PDF using Playwright respecting existing HTML template CSS"""
     try:
+        # Special handling for job_form to ensure it fills the page properly
+        is_job_form = "job_form" in os.path.basename(html_file_path).lower()
+        
         with sync_playwright() as p:
             browser = p.chromium.launch()
-            page = browser.new_page()
             
-            # Set viewport to exact A4 dimensions in pixels (210mm x 297mm at 96 DPI)
-            page.set_viewport_size({"width": 794, "height": 1123})
+            # Use device scale factor of 1.5 for better quality and sizing
+            # A4 size in points (595.28 x 841.89)
+            # For job_form specifically, use larger viewport height to ensure proper vertical fill
+            if is_job_form:
+                context = browser.new_context(
+                    viewport={"width": 1240, "height": 2000},  # Increased height for job form
+                    device_scale_factor=1.5
+                )
+            else:
+                context = browser.new_context(
+                    viewport={"width": 1240, "height": 1754},
+                    device_scale_factor=1.5
+                )
+            page = context.new_page()
             
             # Load HTML file without modification to preserve template CSS
             page.goto(f"file://{os.path.abspath(html_file_path)}")
@@ -56,23 +79,43 @@ def convert_html_to_pdf_playwright(html_file_path, pdf_file_path):
             # Wait for content to load properly
             page.wait_for_load_state('networkidle')
             
-            # Generate PDF with settings that respect the HTML template's CSS
-            page.pdf(
-                path=pdf_file_path,
-                format='A4',
-                print_background=True,
-                prefer_css_page_size=True,  # Use CSS @page settings from HTML
-                margin={
+            # PDF settings differ slightly based on the document type
+            pdf_settings = {
+                "path": pdf_file_path,
+                "format": 'A4',
+                "print_background": True,
+                "prefer_css_page_size": True,  # Use CSS @page settings from HTML
+                "display_header_footer": False,
+                "width": '210mm',
+                "height": '297mm'
+            }
+            
+            # Different scale settings based on document type
+            if is_job_form:
+                pdf_settings["scale"] = 1.05  # Slightly larger scale for job form to fill page better
+            else:
+                pdf_settings["scale"] = 1.0  # Normal scale for standard documents
+            
+            # Different margin settings based on document type
+            if is_job_form:
+                # For job form, use smaller margins to maximize page usage
+                pdf_settings["margin"] = {
                     'top': '0mm',
                     'right': '0mm', 
                     'bottom': '0mm',
                     'left': '0mm'
-                },
-                scale=1.0,
-                display_header_footer=False,
-                width='210mm',
-                height='297mm'
-            )
+                }
+            else:
+                # Standard margins for other documents
+                pdf_settings["margin"] = {
+                    'top': '0mm',
+                    'right': '0mm', 
+                    'bottom': '0mm',
+                    'left': '0mm'
+                }
+            
+            # Generate PDF with the configured settings
+            page.pdf(**pdf_settings)
             
             browser.close()
                 
@@ -707,6 +750,9 @@ def generate_job_form(data, timestamp, output_dir):
     template_path = os.path.join('..', '..', 'reports', 'Reports html', 'job_form.html')
     with open(template_path, 'r') as f:
         html_content = f.read()
+        
+    # Make a backup of the original template content
+    original_content = html_content
     
     # Extract all the needed data
     case_name = data.get("Case Name / No", "")
@@ -719,6 +765,15 @@ def generate_job_form(data, timestamp, output_dir):
     # Handle dates and times
     start_date, start_time = extract_date_time(data.get("Start Date & Time", ""))
     end_date, end_time = extract_date_time(data.get("End Date & Time", ""))
+    
+    # Print debug info to check data
+    print(f"[DEBUG] Job Form Data:")
+    print(f"  - Case Name: {case_name}")
+    print(f"  - Authorized Officer: {authorized_officer}")
+    print(f"  - Party Name: {assessee_name}")
+    print(f"  - Address: {premise_address}")
+    print(f"  - Date/Time In: {start_date} {start_time}")
+    print(f"  - Date/Time Out: {end_date} {end_time}")
     
     # Device information
     device_type = data.get("Device Type (Laptop/Desktop/Server/Other)", "")
@@ -735,27 +790,51 @@ def generate_job_form(data, timestamp, output_dir):
     hdd_lab_systems = data.get("No. of HDD provided by Lab Systems (I) Pvt. Ltd.", "")
     hdd_income_tax = data.get("No. of HDD provided by Income Tax Department", "")
     
-    # Basic Information
-    html_content = html_content.replace('<td style="width: 25%; font-weight: bold;">Case Name/No</td>\n                <td colspan="3"></td>', 
-                                     f'<td style="width: 25%; font-weight: bold;">Case Name/No</td>\n                <td colspan="3">{case_name}</td>')
+    # Use direct HTML string replacements for the basic information table
+    # This is more reliable than regex when dealing with the exact structure
+    
+    # Case Name/No
+    html_content = html_content.replace(
+        '<td style="width: 25%; font-weight: bold;">Case Name/No</td>\n                <td colspan="3"></td>',
+        f'<td style="width: 25%; font-weight: bold;">Case Name/No</td>\n                <td colspan="3">{case_name}</td>'
+    )
     
     # Date & Time In/Out
-    html_content = html_content.replace('<td style="width: 25%; font-weight: bold;">Date & Time in</td>\n                <td style="width: 25%;"></td>', 
-                                     f'<td style="width: 25%; font-weight: bold;">Date & Time in</td>\n                <td style="width: 25%;">{start_date} {start_time}</td>')
-    html_content = html_content.replace('<td style="width: 25%; font-weight: bold;">Date & Time Out</td>\n                <td style="width: 25%;"></td>', 
-                                     f'<td style="width: 25%; font-weight: bold;">Date & Time Out</td>\n                <td style="width: 25%;">{end_date} {end_time}</td>')
+    html_content = html_content.replace(
+        '<td style="width: 25%; font-weight: bold;">Date & Time in</td>\n                <td style="width: 25%;"></td>',
+        f'<td style="width: 25%; font-weight: bold;">Date & Time in</td>\n                <td style="width: 25%;">{start_date} {start_time}</td>'
+    )
+    html_content = html_content.replace(
+        '<td style="width: 25%; font-weight: bold;">Date & Time Out</td>\n                <td style="width: 25%;"></td>',
+        f'<td style="width: 25%; font-weight: bold;">Date & Time Out</td>\n                <td style="width: 25%;">{end_date} {end_time}</td>'
+    )
     
     # Authorized Officer
-    html_content = html_content.replace('<td style="font-weight: bold;">Authorised Officer</td>\n                <td colspan="3"></td>', 
-                                     f'<td style="font-weight: bold;">Authorised Officer</td>\n                <td colspan="3">{authorized_officer}</td>')
+    html_content = html_content.replace(
+        '<td style="font-weight: bold;">Authorised Officer</td>\n                <td colspan="3"></td>',
+        f'<td style="font-weight: bold;">Authorised Officer</td>\n                <td colspan="3">{authorized_officer}</td>'
+    )
     
     # Name of the Party
-    html_content = html_content.replace('<td style="font-weight: bold;">Name of the Party</td>\n                <td colspan="3"></td>', 
-                                     f'<td style="font-weight: bold;">Name of the Party</td>\n                <td colspan="3">{assessee_name}</td>')
+    html_content = html_content.replace(
+        '<td style="font-weight: bold;">Name of the Party</td>\n                <td colspan="3"></td>',
+        f'<td style="font-weight: bold;">Name of the Party</td>\n                <td colspan="3">{assessee_name}</td>'
+    )
     
     # Premises Address
-    html_content = html_content.replace('<td style="font-weight: bold;">Premises Address</td>\n                <td colspan="3"></td>', 
-                                     f'<td style="font-weight: bold;">Premises Address</td>\n                <td colspan="3">{premise_address}</td>')
+    html_content = html_content.replace(
+        '<td style="font-weight: bold;">Premises Address</td>\n                <td colspan="3"></td>',
+        f'<td style="font-weight: bold;">Premises Address</td>\n                <td colspan="3">{premise_address}</td>'
+    )
+    
+    # In case the exact string replacement doesn't work, also try regex as a fallback
+    # Case Name
+    if case_name and '<td colspan="3">' + case_name + '</td>' not in html_content:
+        html_content = re.sub(
+            r'(<td[^>]*>Case Name\/No<\/td>\s*<td[^>]*>)([^<]*)(</td>)', 
+            f'\\1{case_name}\\3', 
+            html_content
+        )
     
     # Forensic Works Performed - Check radio buttons based on selected works
     forensic_works = data.get("Forensic Works Performed", "")
@@ -804,46 +883,97 @@ def generate_job_form(data, timestamp, output_dir):
     # Item Details Table - Fill first row with device information
     if device_type or make or device_owner:
         device_details = f"{make} {model} ({size})" if make else ""
-        action_taken = disk_handling if disk_handling else ""
+        action_taken = disk_handling if disk_handling else "Imaging"
         
-        # Replace first empty row in Item Details table
-        empty_row_pattern = r'<tr>\s*<td style="height: 35px;"></td>\s*<td></td>\s*<td></td>\s*<td></td>\s*</tr>'
-        replacement_row = f'<tr><td style="height: 35px;">1</td><td>{device_type}</td><td>{device_details}</td><td>{action_taken}</td></tr>'
-        html_content = re.sub(empty_row_pattern, replacement_row, html_content, count=1)
+        # First try direct string replacement for the first empty row
+        try:
+            first_row = '<tr>\n                <td style="height: 45px;"></td>\n                <td></td>\n                <td></td>\n                <td></td>\n            </tr>'
+            new_row = f'<tr>\n                <td style="height: 45px; text-align: center;">1</td>\n                <td>{device_type}</td>\n                <td>{device_details}</td>\n                <td>{action_taken}</td>\n            </tr>'
+            
+            if first_row in html_content:
+                html_content = html_content.replace(first_row, new_row, 1)
+            else:
+                # If direct replacement fails, use the regex approach
+                pattern = r'(<tr>\s*<td style="width: 8%; font-weight: bold; text-align: center;">S\. No\.</td>.*?</tr>\s*)<tr>\s*<td style="height: \d+px;"></td>\s*<td></td>\s*<td></td>\s*<td></td>\s*</tr>'
+                replacement = f'\\1<tr><td style="height: 45px; text-align: center;">1</td><td>{device_type}</td><td>{device_details}</td><td>{action_taken}</td></tr>'
+                html_content = re.sub(pattern, replacement, html_content, count=1, flags=re.DOTALL)
+        except Exception as e:
+            print(f"Warning: Failed to replace item details row: {e}")
+            # Final fallback for item details table
+            pattern = r'(<table>.*?<td[^>]*>Item Type</td>.*?<td[^>]*>Details of the Item</td>.*?<td[^>]*>Action Taken</td>.*?</tr>\s*)<tr>'
+            replacement = f'\\1<tr><td style="text-align: center;">1</td><td>{device_type}</td><td>{device_details}</td><td>{action_taken}</td></tr>\n            <tr>'
+            html_content = re.sub(pattern, replacement, html_content, count=1, flags=re.DOTALL)
     
     # Hard Disk Capacity Table - Fill based on capacity data
-    if hdd_capacity:
-        # Extract capacity value and fill the appropriate row
-        if "2" in hdd_capacity and "tb" in hdd_capacity.lower():
-            # Fill 2TB row with all values
-            html_content = html_content.replace(
-                '<td style="text-align: center;">2 TB</td>\n                <td></td>\n                <td></td>\n                <td></td>',
-                f'<td style="text-align: center;">2 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>'
-            )
-        elif "1" in hdd_capacity and "tb" in hdd_capacity.lower():
-            # Fill 1TB row with all values
-            html_content = html_content.replace(
-                '<td style="text-align: center;">1 TB</td>\n                <td></td>\n                <td></td>\n                <td></td>',
-                f'<td style="text-align: center;">1 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>'
-            )
-        elif "4" in hdd_capacity and "tb" in hdd_capacity.lower():
-            # Fill 4TB row with all values
-            html_content = html_content.replace(
-                '<td style="text-align: center;">4 TB</td>\n                <td></td>\n                <td></td>\n                <td></td>',
-                f'<td style="text-align: center;">4 TB</td>\n                <td>{hdd_used}</td>\n                <td>{hdd_lab_systems}</td>\n                <td>{hdd_income_tax}</td>'
-            )
+    if hdd_capacity or hdd_used:
+        # If we have hard disk capacity specified, fill the appropriate row
+        if hdd_capacity and "2" in hdd_capacity.lower() and "tb" in hdd_capacity.lower():
+            # Try both patterns to be more flexible with different HTML structures
+            pattern1 = r'(<td style="text-align: center; height: 35px;">2 TB</td>\s*)<td></td>\s*<td></td>\s*<td></td>'
+            pattern2 = r'(<td style="text-align: center;">2 TB</td>\s*)<td></td>\s*<td></td>\s*<td></td>'
+            replacement = f'\\1<td>{hdd_used}</td><td>{hdd_lab_systems}</td><td>{hdd_income_tax}</td>'
+            
+            # Try both patterns
+            if re.search(pattern1, html_content):
+                html_content = re.sub(pattern1, replacement, html_content)
+            else:
+                html_content = re.sub(pattern2, replacement, html_content)
+            
+        elif hdd_capacity and "1" in hdd_capacity.lower() and "tb" in hdd_capacity.lower():
+            # Try both patterns for 1TB
+            pattern1 = r'(<td style="text-align: center; height: 35px;">1 TB</td>\s*)<td></td>\s*<td></td>\s*<td></td>'
+            pattern2 = r'(<td style="text-align: center;">1 TB</td>\s*)<td></td>\s*<td></td>\s*<td></td>'
+            replacement = f'\\1<td>{hdd_used}</td><td>{hdd_lab_systems}</td><td>{hdd_income_tax}</td>'
+            
+            if re.search(pattern1, html_content):
+                html_content = re.sub(pattern1, replacement, html_content)
+            else:
+                html_content = re.sub(pattern2, replacement, html_content)
+            
+        elif hdd_capacity and "4" in hdd_capacity.lower() and "tb" in hdd_capacity.lower():
+            # Try both patterns for 4TB
+            pattern1 = r'(<td style="text-align: center; height: 35px;">4 TB</td>\s*)<td></td>\s*<td></td>\s*<td></td>'
+            pattern2 = r'(<td style="text-align: center;">4 TB</td>\s*)<td></td>\s*<td></td>\s*<td></td>'
+            replacement = f'\\1<td>{hdd_used}</td><td>{hdd_lab_systems}</td><td>{hdd_income_tax}</td>'
+            
+            if re.search(pattern1, html_content):
+                html_content = re.sub(pattern1, replacement, html_content)
+            else:
+                html_content = re.sub(pattern2, replacement, html_content)
+        else:
+            # If we have HDD info but no specific capacity, default to 2TB row
+            pattern1 = r'(<td style="text-align: center; height: 35px;">2 TB</td>\s*)<td></td>\s*<td></td>\s*<td></td>'
+            pattern2 = r'(<td style="text-align: center;">2 TB</td>\s*)<td></td>\s*<td></td>\s*<td></td>'
+            replacement = f'\\1<td>{hdd_used}</td><td>{hdd_lab_systems}</td><td>{hdd_income_tax}</td>'
+            
+            if re.search(pattern1, html_content):
+                html_content = re.sub(pattern1, replacement, html_content)
+            else:
+                html_content = re.sub(pattern2, replacement, html_content)
     
-    # Fill Total No. of Hard Disk Used
+    # Fill Total No. of Hard Disk Used - using regex for more reliable replacement
     if hdd_used:
-        html_content = html_content.replace(
-            '<td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>\n                <td></td>',
-            f'<td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>\n                <td>{hdd_used}</td>'
-        )
-    
-    # Total Hard Disk Used
-    if hdd_used:
-        html_content = html_content.replace('<td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>\n                <td></td>', 
-                                         f'<td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>\n                <td>{hdd_used}</td>')
+        # Try multiple patterns to be more flexible
+        patterns = [
+            r'(<td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>\s*)<td></td>',
+            r'(<td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>\s*)<td>\s*</td>',
+            r'(<td>Total No. of Hard Disk Used</td>\s*)<td></td>',
+            r'(Total No. of Hard Disk Used\s*</td>\s*)<td></td>'
+        ]
+        
+        replacement = f'\\1<td>{hdd_used}</td>'
+        
+        # Try each pattern until one works
+        for pattern in patterns:
+            if re.search(pattern, html_content):
+                html_content = re.sub(pattern, replacement, html_content)
+                break
+        
+        # As a fallback, if none of the patterns worked, add the data at the end of the table
+        if all(not re.search(pattern, html_content) for pattern in patterns):
+            pattern = r'(<tr>\s*<td style="text-align: center; font-weight: bold;">Total No. of Hard Disk Used</td>)'
+            replacement = f'\\1<td>{hdd_used}</td>'
+            html_content = re.sub(pattern, replacement, html_content)
     
     # Working Hours Table - Fill forensic examiner info
     examiner1_name = data.get("Digital Forensic Examiner 1 Name", "") or forensic_examiner
@@ -852,20 +982,28 @@ def generate_job_form(data, timestamp, output_dir):
     examiner2_hours = data.get("Digital Forensic Examiner 2 Working Hours", "")
     overall_hours = data.get("Overall Working Hours", "") or working_hours
     
-    # Fill first examiner
+    # Print debug info for working hours
+    print(f"  - Examiner 1: {examiner1_name} ({examiner1_hours})")
+    print(f"  - Examiner 2: {examiner2_name} ({examiner2_hours})")
+    print(f"  - Overall Hours: {overall_hours}")
+    
+    # Fill first examiner with regex for more reliable replacement
     if examiner1_name:
-        html_content = html_content.replace('<td style="text-align: center;">1.</td>\n                <td style="height: 35px;"></td>\n                <td></td>', 
-                                         f'<td style="text-align: center;">1.</td>\n                <td style="height: 35px;">{examiner1_name}</td>\n                <td>{examiner1_hours}</td>')
+        pattern = r'(<td style="text-align: center;">1\.</td>\s*)<td style="height: 45px;"></td>\s*<td></td>'
+        replacement = f'\\1<td style="height: 45px;">{examiner1_name}</td><td>{examiner1_hours}</td>'
+        html_content = re.sub(pattern, replacement, html_content)
     
     # Fill second examiner if exists
     if examiner2_name:
-        html_content = html_content.replace('<td style="text-align: center;">2.</td>\n                <td style="height: 35px;"></td>\n                <td></td>', 
-                                         f'<td style="text-align: center;">2.</td>\n                <td style="height: 35px;">{examiner2_name}</td>\n                <td>{examiner2_hours}</td>')
+        pattern = r'(<td style="text-align: center;">2\.</td>\s*)<td style="height: 45px;"></td>\s*<td></td>'
+        replacement = f'\\1<td style="height: 45px;">{examiner2_name}</td><td>{examiner2_hours}</td>'
+        html_content = re.sub(pattern, replacement, html_content)
     
     # Fill overall working hours
     if overall_hours:
-        html_content = html_content.replace('<td style="text-align: center; font-weight: bold;">Overall Working Hours</td>\n                <td></td>', 
-                                         f'<td style="text-align: center; font-weight: bold;">Overall Working Hours</td>\n                <td>{overall_hours}</td>')
+        pattern = r'(<td></td>\s*<td style="text-align: center; font-weight: bold;">Overall Working Hours</td>\s*)<td></td>'
+        replacement = f'\\1<td>{overall_hours}</td>'
+        html_content = re.sub(pattern, replacement, html_content)
     
     # Signature Section - Leave empty for manual completion
     # Lead Forensic Examiner and Authorised Officer signatures will remain blank
@@ -873,11 +1011,94 @@ def generate_job_form(data, timestamp, output_dir):
     # Create output path
     output_path = os.path.join(output_dir, f'FILLED_job_form_{timestamp}.html')
     
+    # Perform a final check for missing data
+    # If any of the table data fields is still empty after our replacements, 
+    # try one last method - direct row-by-row injection
+    if '<td colspan="3"></td>' in html_content or case_name not in html_content or authorized_officer not in html_content:
+        print("[WARNING] Still found empty cells or missing data in job form, attempting final direct replacements")
+        
+        # Try a complete reconstruction of the basic info table as a reliable last resort
+        new_basic_table = f'''
+        <table>
+            <tr>
+                <td style="width: 25%; font-weight: bold;">Case Name/No</td>
+                <td colspan="3">{case_name}</td>
+            </tr>
+            <tr>
+                <td style="width: 25%; font-weight: bold;">Date & Time in</td>
+                <td style="width: 25%;">{start_date} {start_time}</td>
+                <td style="width: 25%; font-weight: bold;">Date & Time Out</td>
+                <td style="width: 25%;">{end_date} {end_time}</td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">Authorised Officer</td>
+                <td colspan="3">{authorized_officer}</td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">Name of the Party</td>
+                <td colspan="3">{assessee_name}</td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">Premises Address</td>
+                <td colspan="3">{premise_address}</td>
+            </tr>
+        </table>
+        '''
+        
+        # Find the original basic info table and replace it
+        basic_table_pattern = r'<table>\s*<tr>\s*<td[^>]*>Case Name/No</td>.*?<td[^>]*>Premises Address</td>.*?</tr>\s*</table>'
+        html_content = re.sub(basic_table_pattern, new_basic_table.strip(), html_content, flags=re.DOTALL)
+        
+        # If that fails, try a simpler pattern
+        if '<td colspan="3"></td>' in html_content or case_name not in html_content or authorized_officer not in html_content:
+            print("[WARNING] Complete table replacement failed, trying individual rows")
+            
+            # Find all table rows in the basic info table
+            basic_table_pattern = r'<table>\s*<tr>.*?</table>'
+            basic_table_match = re.search(basic_table_pattern, html_content, re.DOTALL)
+            
+            if basic_table_match:
+                basic_table = basic_table_match.group(0)
+                
+                # Manually replace row by row
+                rows = re.findall(r'<tr>.*?</tr>', basic_table, re.DOTALL)
+                
+                if len(rows) >= 5:  # Basic info table has 5 rows
+                    # Row 1: Case Name
+                    if case_name and '<td colspan="3">' + case_name + '</td>' not in rows[0]:
+                        rows[0] = rows[0].replace('<td colspan="3"></td>', f'<td colspan="3">{case_name}</td>')
+                    
+                    # Row 3: Authorized Officer
+                    if authorized_officer and '<td colspan="3">' + authorized_officer + '</td>' not in rows[2]:
+                        rows[2] = rows[2].replace('<td colspan="3"></td>', f'<td colspan="3">{authorized_officer}</td>')
+                    
+                    # Row 4: Name of Party
+                    if assessee_name and '<td colspan="3">' + assessee_name + '</td>' not in rows[3]:
+                        rows[3] = rows[3].replace('<td colspan="3"></td>', f'<td colspan="3">{assessee_name}</td>')
+                    
+                    # Row 5: Premises Address
+                    if premise_address and '<td colspan="3">' + premise_address + '</td>' not in rows[4]:
+                        rows[4] = rows[4].replace('<td colspan="3"></td>', f'<td colspan="3">{premise_address}</td>')
+                    
+                    # Reconstruct the table
+                    new_basic_table = '<table>\n' + '\n'.join(rows) + '\n</table>'
+                    html_content = html_content.replace(basic_table_match.group(0), new_basic_table)
+    
     # Save the filled HTML form
     with open(output_path, 'w') as f:
         f.write(html_content)
     
+    # Verify the final content
     print(f"Job Form generated successfully: {output_path}")
+    
+    # Verify critical data is in the file
+    with open(output_path, 'r') as f:
+        verification = f.read()
+        if case_name not in verification:
+            print(f"[WARNING] Case Name '{case_name}' not found in final HTML")
+        if authorized_officer not in verification:
+            print(f"[WARNING] Officer Name '{authorized_officer}' not found in final HTML")
+    
     return output_path
 
 def generate_master_copy(data, timestamp, output_dir):
