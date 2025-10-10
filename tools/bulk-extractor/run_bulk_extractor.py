@@ -1,5 +1,6 @@
 import subprocess
 import os
+import sys
 
 # Scanners available in your bulk_extractor build
 VALID_SCANNERS = ["email", "base16", "hiberfile", "outlook", "wordlist", "xor"]
@@ -15,6 +16,25 @@ def run_bulk_extractor(input_file):
     output_dir = os.path.join(bulk_extractor_dir, "be_results")
     os.makedirs(output_dir, exist_ok=True)
 
+    # Try to use our Python implementation first
+    bulk_extractor_py = os.path.join(script_dir, "bulk_extractor.py")
+    
+    if os.path.exists(bulk_extractor_py):
+        print("🚀 Using Python-based bulk_extractor alternative")
+        try:
+            # Import and run our bulk extractor alternative
+            sys.path.insert(0, script_dir)
+            from bulk_extractor import BulkExtractorAlternative
+            
+            extractor = BulkExtractorAlternative()
+            extractor.run_extraction(input_file, output_dir)
+            print(f"\n✅ Extraction complete. Results saved in: {output_dir}")
+            return
+        except Exception as e:
+            print(f"❌ Error with Python implementation: {e}")
+            print("Falling back to command line version...")
+
+    # Fallback to command line version
     # Build command with all valid scanners
     cmd = ["bulk_extractor", "-o", output_dir]
     for scanner in VALID_SCANNERS:
@@ -28,6 +48,9 @@ def run_bulk_extractor(input_file):
         print(f"\n✅ Extraction complete. Results saved in: {output_dir}")
     except subprocess.CalledProcessError as e:
         print("❌ Error running bulk_extractor:", e)
+    except FileNotFoundError:
+        print("❌ bulk_extractor executable not found")
+        print("💡 Please install bulk_extractor or use the Python alternative")
 
 if __name__ == "__main__":
     input_file = input("Enter the full path of the forensic image: ").strip()
