@@ -58,7 +58,7 @@ class AutomatedExifTool:
             "export_html": True,
             "generate_hashes": True,
             "timeout": 300,
-            "max_file_size_mb": 100,
+            "max_file_size_mb": 10240,  # 10GB - allow large forensic images
             "quick_mode": False
         }
         
@@ -143,10 +143,14 @@ class AutomatedExifTool:
     
     def scan_evidence_directory(self) -> List[Path]:
         supported_extensions = {
+            # Media files
             '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.gif', '.webp',
             '.pdf', '.mp3', '.wav', '.flac', '.ogg', '.aac', '.m4a',
             '.mp4', '.avi', '.mkv', '.mov', '.wmv', '.doc', '.docx', 
-            '.xls', '.xlsx', '.ppt', '.pptx', '.txt'
+            '.xls', '.xlsx', '.ppt', '.pptx', '.txt',
+            # Forensic image formats
+            '.e01', '.ex01', '.l01', '.dd', '.raw', '.img', '.001', '.000',
+            '.aff', '.afd', '.vmdk', '.vhd', '.vhdx', '.dmg'
         }
         
         if not self.evidence_dir.exists():
@@ -174,6 +178,74 @@ class AutomatedExifTool:
         
         self.logger.info(f"Found {len(evidence_files)} supported files")
         return evidence_files
+    
+    def process_e01_file_directly(self, e01_file_path: str) -> Dict[str, Any]:
+        """Process a single .E01 file directly and extract metadata"""
+        e01_path = Path(e01_file_path).resolve()
+        
+        if not e01_path.exists():
+            return {"status": "ERROR", "error": f"E01 file not found: {e01_file_path}"}
+        
+        if not e01_path.is_file():
+            return {"status": "ERROR", "error": f"Path is not a file: {e01_file_path}"}
+        
+        print(f"\n{'='*60}")
+        print("EDITH-Automater ExifTool E01 Processing")
+        print(f"{'='*60}")
+        print(f"Case ID: {self.case_id}")
+        print(f"E01 File: {e01_path}")
+        print(f"ExifTool Path: {self.exiftool_path}")
+        print(f"{'='*60}\n")
+        
+        start_time = datetime.now()
+        
+        # Process the .E01 file directly
+        result = self._run_exiftool_single_file(e01_path)
+        
+        if result.get("success"):
+            json_file = result.get("output_file")
+            if json_file and Path(json_file).exists():
+                self._create_multiple_outputs(json_file)
+            self._generate_summary_report([e01_path], result)
+        
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        final_result = {
+            "status": "SUCCESS" if result.get("success") else "ERROR",
+            "case_id": self.case_id,
+            "timestamp": start_time.isoformat(),
+            "processing_time": processing_time,
+            "file_path": str(e01_path),
+            "result_directory": str(self.case_result_dir),
+            "metadata_entries": result.get("metadata_entries", 0),
+            "output_files": {
+                "json": str(self.output_dir / f"metadata_{self.case_id}.json"),
+                "csv": str(self.output_dir / f"metadata_{self.case_id}.csv"),
+                "html": str(self.output_dir / f"metadata_{self.case_id}.html"),
+                "summary": str(self.output_dir / f"summary_{self.case_id}.txt")
+            }
+        }
+        
+        if not result.get("success"):
+            final_result["error"] = result.get("error", "Unknown error")
+        
+        # Display results
+        print(f"{'='*60}")
+        print("E01 PROCESSING COMPLETE")
+        print(f"{'='*60}")
+        
+        if final_result["status"] == "SUCCESS":
+            print("✅ E01 metadata extraction successful!")
+            print(f"📊 Files processed: 1")
+            print(f"📈 Metadata entries: {final_result['metadata_entries']}")
+            print(f"⏱️  Processing time: {final_result['processing_time']:.2f} seconds")
+            print(f"📁 Results saved to: {final_result['result_directory']}")
+        else:
+            print("❌ E01 processing failed!")
+            print(f"Error: {final_result.get('error', 'Unknown error')}")
+        
+        print(f"{'='*60}\n")
+        return final_result
     
     def extract_metadata_batch(self, evidence_files: List[Path]) -> Dict[str, Any]:
         if not evidence_files:
