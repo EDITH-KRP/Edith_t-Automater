@@ -80,7 +80,7 @@ def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
     if not os.path.exists(evidence_path):
         print(f"    [-] Evidence file not found: {evidence_path}")
         return False
-    
+
     if not os.access(evidence_path, os.R_OK):
         print(f"    [-] Cannot read evidence file: {evidence_path}")
         return False
@@ -88,47 +88,47 @@ def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
     # Get file size for smart processing
     file_size = os.path.getsize(evidence_path)
     file_size_gb = file_size / (1024 * 1024 * 1024)
-    
+
     print(f"    [INFO] Evidence file size: {file_size_gb:.2f} GB")
 
     # Smart configuration based on file size
     if file_size_gb > 5.0:  # Large files > 5GB
         print(f"    [INFO] Large evidence file detected. Using fast processing mode.")
         # Reduced scanners and limited processing for speed
-        VALID_SCANNERS = ["email", "base16"]
+        VALID_SCANNERS = ["email", "base16", "wordlist"]
         timeout_minutes = 5  # Reduced timeout for large files
         thread_count = "1"   # Single thread for stability
         sample_size = ""     # Remove problematic sampling for now
     elif file_size_gb > 2.0:  # Medium files 2-5GB
         print(f"    [INFO] Medium evidence file detected. Using balanced processing mode.")
-        VALID_SCANNERS = ["email", "base16"]
-        timeout_minutes = 10
+        VALID_SCANNERS = ["email", "base16", "wordlist"]
+        timeout_minutes = 5
         thread_count = "1"
         sample_size = ""     # Remove problematic sampling for now
     else:  # Small files < 2GB
         print(f"    [INFO] Small evidence file detected. Using full processing mode.")
         VALID_SCANNERS = ["email", "base16", "wordlist"]
-        timeout_minutes = 15
+        timeout_minutes = 5
         thread_count = "2"
         sample_size = ""
 
     # Get the project root directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(script_dir))
-    
+
     # Path to compiled bulk_extractor binary
     bulk_extractor_binary = os.path.join(project_root, "tools", "bulk-extractor", "bulk_extractor", "src", "bulk_extractor")
-    
+
     # Check if binary exists and is executable
     if os.path.exists(bulk_extractor_binary) and os.access(bulk_extractor_binary, os.X_OK):
         print(f"    [+] Found local bulk_extractor binary: {bulk_extractor_binary}")
     else:
         print(f"    [-] Local bulk_extractor binary not found or not executable")
         print(f"    [INFO] Attempting to use system bulk_extractor...")
-        
+
         # Try to find bulk_extractor in system PATH
         try:
-            result = subprocess.run(["which", "bulk_extractor"], 
+            result = subprocess.run(["which", "bulk_extractor"],
                                   capture_output=True, text=True, timeout=5)
             if result.returncode == 0 and result.stdout.strip():
                 bulk_extractor_binary = "bulk_extractor"
@@ -144,21 +144,21 @@ def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
 
     # Build command with safer parameters for better compatibility
     cmd = [bulk_extractor_binary, "-o", output_dir, "-j", thread_count]
-    
+
     # Add page size limit for large files to improve performance
     if file_size_gb > 2.0:
         cmd.extend(["-G", "1000000"])  # Limit to 1M pages for large files
-    
+
     # Add minimal scanners that are most reliable
     cmd.extend(["-e", "email"])      # Enable email scanner (most stable)
     cmd.extend(["-e", "base16"])     # Enable base16 scanner (reliable)
-    
+
     # Disable potentially problematic scanners explicitly
     cmd.extend(["-x", "rar"])        # Disable rar scanner
-    cmd.extend(["-x", "zip"])        # Disable zip scanner  
+    cmd.extend(["-x", "zip"])        # Disable zip scanner
     cmd.extend(["-x", "pdf"])        # Disable pdf scanner
     cmd.extend(["-x", "wordlist"])   # Disable wordlist scanner
-        
+
     cmd.append(evidence_path)
 
     print(f"    [+] Command: {' '.join(cmd)}")
@@ -168,7 +168,7 @@ def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
     # Test if bulk_extractor works before running the full command
     try:
         # Don't use --help as it returns exit code 1, use -V for version instead
-        test_result = subprocess.run([bulk_extractor_binary, "-V"], 
+        test_result = subprocess.run([bulk_extractor_binary, "-V"],
                                    capture_output=True, text=True, timeout=10)
         if test_result.returncode == 0:
             print(f"    [+] bulk_extractor version: {test_result.stdout.strip()}")
@@ -185,7 +185,7 @@ def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
         timeout_seconds = timeout_minutes * 60
         result = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout_seconds)
         print(f"    [+] bulk_extractor completed successfully")
-        
+
         # List generated files
         if os.path.exists(output_dir):
             files = os.listdir(output_dir)
@@ -197,7 +197,7 @@ def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
                     print(f"        ... and {len(files) - 5} more files")
             else:
                 print(f"    [WARNING] No output files generated")
-        
+
         return True
     except subprocess.TimeoutExpired:
         print(f"    [-] bulk_extractor timed out after {timeout_minutes} minutes")
@@ -262,12 +262,12 @@ def run_workflow(evidence_path, memory_file=None):
     if memory_file:
         print(f"\n=== Memory Analysis Check ===")
         print(f"[INFO] Memory file parameter provided: {memory_file}")
-        
+
         if os.path.exists(memory_file):
             print(f"[+] Memory file found: {memory_file}")
             file_size_mb = os.path.getsize(memory_file) / (1024 * 1024)
             print(f"[INFO] Memory file size: {file_size_mb:.2f} MB")
-            
+
             print("\n=== Running Memory Analysis (Volatility) ===")
             try:
                 memory_results = auto_vol.run_volatility(
@@ -296,23 +296,23 @@ def run_workflow(evidence_path, memory_file=None):
     try:
         # Use the enhanced ExifTool automation for .E01 files
         case_id_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+
         # Check if the evidence file is an .E01 file
         evidence_ext = os.path.splitext(evidence_path.lower())[1]
         if evidence_ext in ['.e01', '.ex01', '.l01']:
             print(f"[+] Detected forensic image format: {evidence_ext}")
             print(f"[+] Processing {os.path.basename(evidence_path)} with enhanced ExifTool...")
-            
+
             # Use the enhanced ExifTool with direct .E01 processing
             exif_tool = exiftool_auto.AutomatedExifTool(
                 case_id=f"CASE_{case_id_timestamp}",
                 show_prompt=False,
                 custom_result_dir=subdirs['exiftool']
             )
-            
+
             # Process the .E01 file directly
             exif_results = exif_tool.process_e01_file_directly(evidence_path)
-            
+
             if exif_results and exif_results.get("status") == "SUCCESS":
                 print(f"[+] ExifTool E01 analysis completed successfully!")
                 print(f"    [+] Metadata entries extracted: {exif_results.get('metadata_entries', 0)}")
@@ -335,24 +335,24 @@ def run_workflow(evidence_path, memory_file=None):
                 print(f"[+] ExifTool analysis completed. Files processed: {exif_results.get('files_processed', 0)}")
             else:
                 print("[-] ExifTool analysis completed with warnings")
-                
+
     except Exception as e:
         print(f"[-] ExifTool analysis failed: {e}")
         print("    [*] Continuing workflow...")
 
     # 5. Run Bulk-Extractor Analysis
     print("\n=== Running Bulk-Extractor Analysis ===")
-    
+
     # Check file size first
     evidence_size_gb = os.path.getsize(evidence_path) / (1024 * 1024 * 1024)
-    
+
     if evidence_size_gb > 8.0:  # Very large files > 8GB
         print(f"[WARNING] Very large evidence file ({evidence_size_gb:.2f} GB) detected.")
         print(f"[INFO] Bulk-Extractor analysis may take 1+ hours for files this size.")
-        
+
         # Ask user if they want to continue or skip
         user_choice = os.environ.get('EDITH_BULK_EXTRACTOR_MODE', 'auto')
-        
+
         if user_choice == 'skip':
             print(f"[INFO] Skipping Bulk-Extractor analysis (configured to skip)")
             skip_bulk = True
@@ -372,12 +372,12 @@ def run_workflow(evidence_path, memory_file=None):
 
             print(f"[INFO] Starting bulk-extractor analysis...")
             print(f"[INFO] Output directory: {bulk_output}")
-            
+
             if evidence_size_gb > 5.0:
                 print(f"[WARNING] Large file processing - this may take 15-30 minutes")
             else:
                 print(f"[INFO] Processing should complete in 5-15 minutes")
-            
+
             success = run_bulk_extractor_with_custom_output(evidence_path, bulk_output)
 
             if success:

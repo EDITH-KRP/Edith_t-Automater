@@ -37,10 +37,10 @@ function Write-Log {
         [string]$Message,
         [string]$Level = "INFO"
     )
-    
+
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $LogEntry = "[$Timestamp] [$Level] $Message"
-    
+
     try {
         Add-Content -Path $LogFile -Value $LogEntry -ErrorAction SilentlyContinue
     } catch {
@@ -54,7 +54,7 @@ function Show-ProgressBar {
         [string]$Status,
         [int]$PercentComplete = 0
     )
-    
+
     Write-Progress -Activity $Activity -Status $Status -PercentComplete $PercentComplete
 }
 
@@ -146,29 +146,29 @@ function Invoke-OrchestratorCommand {
     )
 
     Write-Log "Invoking orchestrator.py with command: $Command"
-    
+
     try {
         $Arguments = @("orchestrator.py", $Command)
-        
+
         if ($EvidencePath) {
             $Arguments += "--evidence", $EvidencePath
         }
-        
+
         if ($MemoryPath) {
             $Arguments += "--memory", $MemoryPath
         }
-        
+
         if ($CaseId) {
             $Arguments += "--case", $CaseId
         }
 
         Write-Progress "Executing orchestrator.py workflow..."
-        
+
         $OriginalLocation = Get-Location
         Set-Location $OrchestratorDir
-        
+
         $Process = Start-Process -FilePath $PythonCmd -ArgumentList $Arguments -Wait -PassThru -NoNewWindow -RedirectStandardOutput "orchestrator_output.log" -RedirectStandardError "orchestrator_error.log"
-        
+
         Set-Location $OriginalLocation
 
         if ($Process.ExitCode -eq 0) {
@@ -176,7 +176,7 @@ function Invoke-OrchestratorCommand {
             return $true
         } else {
             Write-Warning "Orchestrator command completed with warnings (Exit code: $($Process.ExitCode))"
-            
+
             # Show error output if available
             $ErrorLogPath = Join-Path $OrchestratorDir "orchestrator_error.log"
             if (Test-Path $ErrorLogPath) {
@@ -187,7 +187,7 @@ function Invoke-OrchestratorCommand {
                     }
                 }
             }
-            
+
             return $false
         }
     }
@@ -295,7 +295,7 @@ Case directory: $CaseDir
 
 function New-CaseDirectory {
     param([string]$Prefix = "CASE")
-    
+
     $CaseId = "$Prefix`_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
     $CaseDir = Join-Path $ResultsDir $CaseId
 
@@ -338,9 +338,9 @@ CREATOR=EDITH-Automater PowerShell Script
 
 function Get-LatestCase {
     try {
-        $CaseDirs = Get-ChildItem -Path $ResultsDir -Directory -Name "CASE_*" | 
-                   Sort-Object { 
-                       (Get-Item (Join-Path $ResultsDir $_)).CreationTime 
+        $CaseDirs = Get-ChildItem -Path $ResultsDir -Directory -Name "CASE_*" |
+                   Sort-Object {
+                       (Get-Item (Join-Path $ResultsDir $_)).CreationTime
                    } -Descending
 
         if ($CaseDirs.Count -gt 0) {
@@ -538,9 +538,9 @@ function Start-EvidenceCollection {
     try {
         $OriginalLocation = Get-Location
         Set-Location $ScriptsDir
-        
+
         Show-ProgressBar -Activity "Evidence Collection" -Status "Launching interactive form..." -PercentComplete 20
-        
+
         $Process = Start-Process -FilePath $PythonCmd -ArgumentList "q_script.py" -Wait -PassThru -NoNewWindow
 
         Hide-ProgressBar
@@ -565,7 +565,7 @@ function Start-EvidenceCollection {
     }
 }
 
-function Start-ForensicAnalysis {
+function Start-ForensicAnalysisWithReports {
     param(
         [string]$EvidencePath,
         [string]$MemoryPath = "",
@@ -573,8 +573,8 @@ function Start-ForensicAnalysis {
         [string]$CaseId = ""
     )
 
-    Write-Step "Starting Forensic Analysis"
-    Write-Log "Starting forensic analysis for case: $CaseId"
+    Write-Step "Starting Forensic Analysis with Report Generation"
+    Write-Log "Starting forensic analysis with reports for case: $CaseId"
 
     $Script3Path = Join-Path $ScriptsDir "script_3.py"
     if (-not (Test-Path $Script3Path)) {
@@ -608,11 +608,11 @@ function Start-ForensicAnalysis {
         }
 
         Write-Progress "Running forensic analysis workflow..."
-        
+
         # Show progress indicators
         Show-ProgressBar -Activity "Forensic Analysis" -Status "Initializing..." -PercentComplete 10
         Start-Sleep -Seconds 1
-        
+
         Show-ProgressBar -Activity "Forensic Analysis" -Status "Processing evidence file..." -PercentComplete 25
         Write-Host ""
 
@@ -622,10 +622,21 @@ function Start-ForensicAnalysis {
         if ($LASTEXITCODE -eq 0) {
             Write-Success "Forensic analysis completed successfully!"
             Write-Log "Forensic analysis completed successfully for case: $CaseId"
-            return $true
+
+            # After successful forensic analysis, run report generation
+            Write-Step "Starting Report Generation"
+            $ReportResult = Start-ReportGeneration -CaseDir $CaseDir -CaseId $CaseId
+
+            if ($ReportResult) {
+                Write-Success "Complete workflow (Analysis + Reports) completed successfully!"
+                return $true
+            } else {
+                Write-Warning "Forensic analysis completed but report generation had issues"
+                return $true  # Still return true since analysis succeeded
+            }
         } else {
-            Write-Warning "Forensic analysis completed with warnings (Exit code: $($Process.ExitCode))"
-            Write-Log "Forensic analysis completed with warnings for case: $CaseId (Exit code: $($Process.ExitCode))"
+            Write-Warning "Forensic analysis completed with warnings (Exit code: $($LASTEXITCODE))"
+            Write-Log "Forensic analysis completed with warnings for case: $CaseId (Exit code: $($LASTEXITCODE))"
             return $false
         }
     }
@@ -641,6 +652,107 @@ function Start-ForensicAnalysis {
         Remove-Item Env:EDITH_CASE_ID -ErrorAction SilentlyContinue
         Set-Location $OriginalLocation
     }
+}
+
+function Start-ReportGeneration {
+    param(
+        [string]$CaseDir,
+        [string]$CaseId
+    )
+
+    Write-Step "Starting Report Generation (HTML + PDF)"
+    Write-Log "Starting report generation for case: $CaseId"
+
+    $ReportGenPath = Join-Path $ScriptsDir "report_gen.py"
+    if (-not (Test-Path $ReportGenPath)) {
+        Write-Warning "report_gen.py not found at $ReportGenPath - skipping report generation"
+        return $false
+    }
+
+    Write-Info "Generating forensic reports for case: $(Split-Path $CaseDir -Leaf)"
+    Write-Host ""
+
+    try {
+        $OriginalLocation = Get-Location
+        Set-Location $ScriptsDir
+
+        Show-ProgressBar -Activity "Report Generation" -Status "Generating HTML reports..." -PercentComplete 30
+
+        # Run report_gen.py
+        $Process = Start-Process -FilePath $PythonCmd -ArgumentList "report_gen.py" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "report_gen_output.log" -RedirectStandardError "report_gen_error.log"
+
+        Hide-ProgressBar
+
+        if ($Process.ExitCode -eq 0) {
+            Write-Success "Report generation completed successfully!"
+            Write-Log "Report generation completed successfully for case: $CaseId"
+
+            # Show generated reports
+            $FinalReportsDir = Join-Path $CaseDir "Final_Reports"
+            $ReportsPdfDir = Join-Path $CaseDir "Reports pdf"
+
+            if (Test-Path $FinalReportsDir) {
+                $HtmlFiles = Get-ChildItem -Path $FinalReportsDir -Filter "FILLED_*.html" -ErrorAction SilentlyContinue
+                if ($HtmlFiles.Count -gt 0) {
+                    Write-Info "Generated HTML reports: $($HtmlFiles.Count) files"
+                    foreach ($HtmlFile in $HtmlFiles) {
+                        Write-Host "   $($HtmlFile.Name)" -ForegroundColor Green
+                    }
+                }
+            }
+
+            if (Test-Path $ReportsPdfDir) {
+                $PdfFiles = Get-ChildItem -Path $ReportsPdfDir -Filter "*.pdf" -ErrorAction SilentlyContinue
+                if ($PdfFiles.Count -gt 0) {
+                    Write-Info "Generated PDF reports: $($PdfFiles.Count) files"
+                    foreach ($PdfFile in $PdfFiles) {
+                        Write-Host "   $($PdfFile.Name)" -ForegroundColor Green
+                    }
+                } else {
+                    Write-Warning "No PDF files generated - check if PDF conversion tools are installed"
+                    Write-Info "Install PDF tools: sudo apt-get install wkhtmltopdf"
+                }
+            }
+
+            return $true
+        } else {
+            Write-Warning "Report generation completed with warnings (Exit code: $($Process.ExitCode))"
+            Write-Log "Report generation completed with warnings for case: $CaseId (Exit code: $($Process.ExitCode))"
+
+            # Show error output if available
+            $ErrorLogPath = Join-Path $ScriptsDir "report_gen_error.log"
+            if (Test-Path $ErrorLogPath) {
+                $ErrorContent = Get-Content $ErrorLogPath -Tail 3
+                foreach ($Line in $ErrorContent) {
+                    if ($Line.Trim()) {
+                        Write-Warning "  $Line"
+                    }
+                }
+            }
+
+            return $false
+        }
+    }
+    catch {
+        Write-Error "Failed to run report generation: $($_.Exception.Message)"
+        Write-Log "Report generation failed for case: $CaseId - $($_.Exception.Message)" -Level "ERROR"
+        return $false
+    }
+    finally {
+        Set-Location $OriginalLocation
+    }
+}
+
+function Start-ForensicAnalysis {
+    param(
+        [string]$EvidencePath,
+        [string]$MemoryPath = "",
+        [string]$CaseDir = "",
+        [string]$CaseId = ""
+    )
+
+    # Call the enhanced version that includes report generation
+    return Start-ForensicAnalysisWithReports -EvidencePath $EvidencePath -MemoryPath $MemoryPath -CaseDir $CaseDir -CaseId $CaseId
 }
 
 function Start-SequentialWorkflow {
@@ -708,11 +820,12 @@ function Show-Help {
     Write-Host "  • Volatility  - Memory analysis framework"
     Write-Host "  • ExifTool    - Metadata extraction"
     Write-Host "  • Bulk Extractor - Data extraction and analysis"
+    Write-Host "  • Report Generator - HTML and PDF report creation"
     Write-Host ""
 
     Write-Host "POWERSHELL USAGE:" -ForegroundColor Cyan
     Write-Host "  .\launcher.ps1                                                      # Interactive menu"
-    Write-Host "  .\launcher.ps1 -Command sequential -EvidencePath 'file.E01'        # Sequential workflow"
+    Write-Host "  .\launcher.ps1 -Command sequential -EvidencePath 'file.E01'        # Sequential workflow with reports"
     Write-Host "  .\launcher.ps1 -Command list-cases                                 # List all cases"
     Write-Host "  .\launcher.ps1 -Help                                               # Show this help"
     Write-Host ""
@@ -725,7 +838,8 @@ function Show-Help {
     Write-Host "  ├── Volatility_output\   # Memory analysis results"
     Write-Host "  ├── ExifTool_output\     # Metadata extraction results"
     Write-Host "  ├── BulkExtractor_output\# Data extraction results"
-    Write-Host "  └── Final_Reports\       # Generated reports"
+    Write-Host "  ├── Final_Reports\       # Generated HTML reports"
+    Write-Host "  └── Reports pdf\         # Generated PDF reports"
     Write-Host ""
 
     Write-Host "REQUIREMENTS:" -ForegroundColor Cyan
@@ -778,7 +892,7 @@ function Test-PythonAvailable {
             return "python3"
         }
     } catch { }
-    
+
     # Try python as fallback
     try {
         $output = Invoke-Expression "python --version 2>&1"
@@ -787,7 +901,7 @@ function Test-PythonAvailable {
             return "python"
         }
     } catch { }
-    
+
     # If neither works, throw error
     throw "Python not found"
 }
@@ -903,7 +1017,7 @@ while ($true) {
             Write-Info "Your forensic cases are saved in: $ResultsDir"
             Write-Host ""
             Write-Host "Goodbye!" -ForegroundColor Green
-            
+
             # Most reliable method - create and execute a bash script
             $ExitScript = "/tmp/exit_terminal.sh"
             $ScriptContent = @'
@@ -914,17 +1028,17 @@ pkill -f "gnome-terminal"
 # Remove this script
 rm -f /tmp/exit_terminal.sh
 '@
-            
+
             try {
                 # Write the script file
                 $ScriptContent | Out-File -FilePath $ExitScript -Encoding ascii
-                
+
                 # Make executable and run
                 bash -c "chmod +x $ExitScript && nohup $ExitScript &"
-                
+
                 # Exit PowerShell
                 [System.Environment]::Exit(0)
-                
+
             } catch {
                 Write-Host "Manual close: Press Ctrl+Shift+Q to close terminal"
                 [System.Environment]::Exit(0)
