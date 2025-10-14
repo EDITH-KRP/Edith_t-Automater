@@ -8,6 +8,19 @@ import datetime
 def run_cmd(cmd):
     """Run a shell command and return stdout"""
     try:
+        # Windows-compatible command execution
+        if os.name == 'nt':  # Windows
+            # Check if command needs tool path resolution
+            cmd_parts = cmd.split()
+            if cmd_parts:
+                tool_name = cmd_parts[0]
+                sleuthkit_dir = os.path.join(os.path.dirname(__file__), 'sleuthkit-4.12.1-win32', 'bin')
+                tool_exe = os.path.join(sleuthkit_dir, tool_name + '.exe')
+                
+                # If local sleuthkit tool exists, use it
+                if os.path.exists(tool_exe):
+                    cmd = cmd.replace(tool_name, f'"{tool_exe}"', 1)
+        
         result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
         if result.returncode != 0:
             print(f"[!] Error running: {cmd}\n{result.stderr}")
@@ -26,8 +39,38 @@ def check_tools():
     available = {}
     
     for tool in tools:
-        result = subprocess.run(['which', tool], capture_output=True, text=True)
-        available[tool] = result.returncode == 0
+        # Windows-compatible tool checking
+        if os.name == 'nt':  # Windows
+            # Check in PATH and local sleuthkit directory
+            sleuthkit_dir = os.path.join(os.path.dirname(__file__), 'sleuthkit-4.12.1-win32', 'bin')
+            tool_paths = [
+                tool + '.exe',  # Check in PATH
+                os.path.join(sleuthkit_dir, tool + '.exe')  # Check in local sleuthkit
+            ]
+            
+            tool_found = False
+            for tool_path in tool_paths:
+                try:
+                    if os.path.isabs(tool_path):
+                        # Absolute path - check if file exists
+                        if os.path.exists(tool_path):
+                            tool_found = True
+                            break
+                    else:
+                        # Check in PATH
+                        result = subprocess.run(['where', tool_path], capture_output=True, text=True)
+                        if result.returncode == 0:
+                            tool_found = True
+                            break
+                except:
+                    continue
+            
+            available[tool] = tool_found
+        else:
+            # Linux/Mac - use which
+            result = subprocess.run(['which', tool], capture_output=True, text=True)
+            available[tool] = result.returncode == 0
+        
         if available[tool]:
             print(f"[+] Found tool: {tool}")
         else:
@@ -163,7 +206,7 @@ def main(image_path=None, output_dir=None):
         f.write(f"Analysis Date: {file_info['timestamp']}\n")
         f.write("\nTools Available:\n")
         for tool, available in available_tools.items():
-            status = "✓" if available else "✗"
+            status = "[+]" if available else "[-]"
             f.write(f"  {status} {tool}\n")
         
         if not any(available_tools.values()):

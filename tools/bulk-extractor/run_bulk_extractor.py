@@ -34,9 +34,39 @@ def run_bulk_extractor(input_file):
             print(f"❌ Error with Python implementation: {e}")
             print("Falling back to command line version...")
 
-    # Fallback to command line version
+    # Fallback to command line version with Windows compatibility
+    # Check for bulk_extractor executable
+    bulk_extractor_exe = None
+    
+    if os.name == 'nt':  # Windows
+        # Check for bulk_extractor.exe in current directory
+        local_exe = os.path.join(script_dir, "bulk_extractor.exe")
+        if os.path.exists(local_exe):
+            bulk_extractor_exe = local_exe
+        else:
+            # Check for bulk_extractor in PATH
+            try:
+                result = subprocess.run(['where', 'bulk_extractor'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    bulk_extractor_exe = 'bulk_extractor'
+            except:
+                pass
+    else:
+        # Linux/Mac
+        try:
+            result = subprocess.run(['which', 'bulk_extractor'], capture_output=True, text=True)
+            if result.returncode == 0:
+                bulk_extractor_exe = 'bulk_extractor'
+        except:
+            pass
+    
+    if not bulk_extractor_exe:
+        print("❌ bulk_extractor executable not found")
+        print("Please install bulk_extractor or place bulk_extractor.exe in the tools/bulk-extractor directory")
+        return
+
     # Build command with all valid scanners
-    cmd = ["bulk_extractor", "-o", output_dir]
+    cmd = [bulk_extractor_exe, "-o", output_dir]
     for scanner in VALID_SCANNERS:
         cmd.extend(["-E", scanner])
     cmd.append(input_file)
@@ -48,6 +78,9 @@ def run_bulk_extractor(input_file):
         print(f"\n✅ Extraction complete. Results saved in: {output_dir}")
     except subprocess.CalledProcessError as e:
         print("❌ Error running bulk_extractor:", e)
+    except FileNotFoundError:
+        print("❌ bulk_extractor executable not found in PATH")
+        print("Please install bulk_extractor or add it to your system PATH")
     except FileNotFoundError:
         print("❌ bulk_extractor executable not found")
         print("💡 Please install bulk_extractor or use the Python alternative")

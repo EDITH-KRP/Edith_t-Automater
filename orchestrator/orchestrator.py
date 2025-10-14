@@ -319,9 +319,11 @@ class EDITHOrchestrator:
                 env['EDITH_CASE_DIR'] = case_dir
                 env['EDITH_CASE_ID'] = case_id
 
+                # Windows-compatible subprocess call - allow tools to show their output
+                # Use shell=True to allow tools to open their own windows if needed
                 result = subprocess.run([
                     python_executable, 'script_3.py'
-                ], input=input_data, text=True, env=env, capture_output=True, timeout=3600)
+                ], input=input_data, text=True, env=env, shell=True, timeout=3600)
 
                 if result.returncode == 0:
                     print(f"\n[SUCCESS] Forensic analysis completed successfully!")
@@ -334,21 +336,7 @@ class EDITHOrchestrator:
                     status = "warning"
                     message = "Forensic analysis completed with warnings"
 
-                # Show output summary
-                if result.stdout:
-                    lines = result.stdout.split('\n')
-                    print(f"\n[OUTPUT] Analysis Summary (last 15 lines):")
-                    for line in lines[-15:]:
-                        if line.strip():
-                            print(f"  {line}")
-
-                # Show any errors
-                if result.stderr:
-                    print(f"\n[STDERR] Error details:")
-                    error_lines = result.stderr.split('\n')
-                    for line in error_lines[-5:]:
-                        if line.strip():
-                            print(f"  {line}")
+                # Note: Output is displayed directly in the opened CMD windows
 
             finally:
                 os.chdir(original_cwd)

@@ -90,7 +90,7 @@ function Write-Banner {
     Write-Host "          EDITH-Automater - Digital Forensics Tool" -ForegroundColor Blue
     Write-Host "                   Complete Launcher v2.0" -ForegroundColor Blue
     Write-Host "=================================================================" -ForegroundColor Blue
-    Write-Host "      Evidence → Digital Investigation → Technical → Harness" -ForegroundColor Cyan
+    Write-Host "      Evidence -> Digital Investigation -> Technical -> Harness" -ForegroundColor Cyan
     Write-Host "=================================================================" -ForegroundColor Blue
     Write-Host ""
 }
@@ -477,7 +477,7 @@ function Start-SequentialAutoWorkflow {
         [string]$MemoryPath = ""
     )
 
-    Write-Step "SEQUENTIAL AUTOMATED WORKFLOW: Evidence Collection → Forensic Analysis"
+    Write-Step "SEQUENTIAL AUTOMATED WORKFLOW: Evidence Collection -> Forensic Analysis"
     Write-Host ""
 
     # Step 1: Create case and run automated evidence collection
@@ -649,7 +649,7 @@ function Start-SequentialWorkflow {
         [string]$MemoryPath = ""
     )
 
-    Write-Step "SEQUENTIAL WORKFLOW: Evidence Collection → Forensic Analysis"
+    Write-Step "SEQUENTIAL WORKFLOW: Evidence Collection -> Forensic Analysis"
     Write-Host ""
 
     # Step 1: Evidence Collection
@@ -694,7 +694,7 @@ function Show-Help {
     Write-Host ""
 
     Write-Host "WORKFLOW OPTIONS:" -ForegroundColor Cyan
-    Write-Host "  1. Sequential       - Interactive evidence collection → automated analysis"
+    Write-Host "  1. Sequential       - Interactive evidence collection -> automated analysis"
     Write-Host ""
 
     Write-Host "SUPPORTED FILE FORMATS:" -ForegroundColor Cyan
@@ -741,7 +741,7 @@ function Show-MainMenu {
     Write-Host "Main Menu - Choose Your Forensic Workflow:" -ForegroundColor White
     Write-Host ""
     Write-Host " 1. Sequential Workflow" -ForegroundColor Green
-    Write-Host "    Interactive evidence collection → Automated forensic analysis" -ForegroundColor Cyan
+    Write-Host "    Interactive evidence collection -> Automated forensic analysis" -ForegroundColor Cyan
     Write-Host ""
     Write-Host " 2. Case Management" -ForegroundColor Green
     Write-Host "    List, view, and manage existing cases" -ForegroundColor Cyan
@@ -768,8 +768,32 @@ if (-not (Test-Path $OrchestratorScript)) {
     exit 1
 }
 
-# Check if Python is available - Updated for Linux compatibility
+# Check if Python is available - Updated for virtual environment support
 function Test-PythonAvailable {
+    # First, check if we're in a virtual environment
+    if ($env:VIRTUAL_ENV -or $env:CONDA_DEFAULT_ENV) {
+        Write-Info "Virtual environment detected: $($env:VIRTUAL_ENV)$($env:CONDA_DEFAULT_ENV)"
+        
+        # Try python from virtual environment first
+        try {
+            $output = Invoke-Expression "python --version 2>&1"
+            if ($output -and $output -match "Python") {
+                Write-Info "Python detected (venv): $output"
+                return "python"
+            }
+        } catch { }
+    }
+    
+    # Check for .venv in project directory
+    $ProjectVenvPath = Join-Path $ProjectRoot ".venv"
+    if (Test-Path $ProjectVenvPath) {
+        $VenvPython = Join-Path $ProjectVenvPath "Scripts\python.exe"
+        if (Test-Path $VenvPython) {
+            Write-Info "Using project virtual environment Python: $VenvPython"
+            return $VenvPython
+        }
+    }
+    
     # Try python3 first (common on Linux)
     try {
         $output = Invoke-Expression "python3 --version 2>&1"
@@ -794,11 +818,28 @@ function Test-PythonAvailable {
 
 # Get Python command
 try {
+    # First, try to activate virtual environment if it exists and isn't active
+    if (-not $env:VIRTUAL_ENV) {
+        $ProjectVenvPath = Join-Path $ProjectRoot ".venv"
+        $VenvActivate = Join-Path $ProjectVenvPath "Scripts\Activate.ps1"
+        
+        if (Test-Path $VenvActivate) {
+            Write-Info "Activating virtual environment..."
+            try {
+                & $VenvActivate
+                Write-Success "Virtual environment activated"
+            } catch {
+                Write-Warning "Could not activate virtual environment: $($_.Exception.Message)"
+            }
+        }
+    }
+    
     $PythonCmd = Test-PythonAvailable
 } catch {
     Write-Error "Python is not installed or not in PATH"
     Write-Info "Please install Python 3 to use EDITH-Automater"
-    Write-Info "Try: sudo apt install python3"
+    Write-Info "Or activate the virtual environment manually:"
+    Write-Info "  .\.venv\Scripts\Activate.ps1"
     Wait-UserInput
     exit 1
 }

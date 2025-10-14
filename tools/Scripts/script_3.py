@@ -3,6 +3,13 @@ import sys
 import subprocess
 from datetime import datetime
 
+# Windows compatibility fixes
+if os.name == 'nt':  # Windows
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
+
 # Add parent directory so imports work
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
@@ -91,6 +98,39 @@ def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
     
     print(f"    [INFO] Evidence file size: {file_size_gb:.2f} GB")
 
+    # Try to use Python-based bulk_extractor alternative first
+    try:
+        # Import our Python implementation
+        bulk_extractor_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bulk-extractor')
+        
+        # Check if our Python implementation exists
+        bulk_extractor_py = os.path.join(bulk_extractor_dir, 'bulk_extractor.py')
+        if os.path.exists(bulk_extractor_py):
+            print(f"    [+] Using Python-based bulk_extractor alternative")
+            
+            # Add the bulk-extractor directory to Python path
+            import sys
+            if bulk_extractor_dir not in sys.path:
+                sys.path.insert(0, bulk_extractor_dir)
+            
+            from bulk_extractor import BulkExtractorAlternative
+            
+            extractor = BulkExtractorAlternative()
+            extractor.run_extraction(evidence_path, output_dir)
+            print(f"    [+] Python bulk_extractor completed successfully")
+            return True
+            
+    except Exception as e:
+        print(f"    [-] Python bulk_extractor failed: {e}")
+        print(f"    [INFO] Falling back to command line version...")
+
+    # Fallback to original executable-based approach
+    return _run_bulk_extractor_executable(evidence_path, output_dir, file_size_gb)
+
+
+def _run_bulk_extractor_executable(evidence_path, output_dir, file_size_gb):
+    """Original executable-based bulk_extractor implementation"""
+
     # Smart configuration based on file size
     if file_size_gb > 5.0:  # Large files > 5GB
         print(f"    [INFO] Large evidence file detected. Using fast processing mode.")
@@ -117,26 +157,30 @@ def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
     project_root = os.path.dirname(os.path.dirname(script_dir))
     
     # Path to compiled bulk_extractor binary
-    bulk_extractor_binary = os.path.join(project_root, "tools", "bulk-extractor", "bulk_extractor", "src", "bulk_extractor")
+    bulk_extractor_binary = os.path.join(project_root, "tools", "bulk-extractor", "bulk_extractor.exe")
     
     # Check if binary exists and is executable
-    if os.path.exists(bulk_extractor_binary) and os.access(bulk_extractor_binary, os.X_OK):
+    if os.path.exists(bulk_extractor_binary):
         print(f"    [+] Found local bulk_extractor binary: {bulk_extractor_binary}")
     else:
-        print(f"    [-] Local bulk_extractor binary not found or not executable")
+        print(f"    [-] Local bulk_extractor binary not found")
         print(f"    [INFO] Attempting to use system bulk_extractor...")
         
-        # Try to find bulk_extractor in system PATH
+        # Try to find bulk_extractor in system PATH (Windows-compatible)
         try:
-            result = subprocess.run(["which", "bulk_extractor"], 
-                                  capture_output=True, text=True, timeout=5)
+            if os.name == 'nt':  # Windows
+                result = subprocess.run(["where", "bulk_extractor"], 
+                                      capture_output=True, text=True, timeout=5)
+            else:  # Linux/Mac
+                result = subprocess.run(["which", "bulk_extractor"], 
+                                      capture_output=True, text=True, timeout=5)
+            
             if result.returncode == 0 and result.stdout.strip():
                 bulk_extractor_binary = "bulk_extractor"
                 print(f"    [+] Found system bulk_extractor: {result.stdout.strip()}")
             else:
                 print(f"    [-] bulk_extractor not found in system PATH")
-                print(f"    [INFO] To install: sudo apt-get install bulk-extractor")
-                print(f"    [INFO] Or compile from source in tools/bulk-extractor/bulk_extractor")
+                print(f"    [INFO] Download bulk_extractor.exe and place in tools/bulk-extractor/")
                 return False
         except Exception as e:
             print(f"    [-] Error checking for system bulk_extractor: {e}")
@@ -169,7 +213,7 @@ def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
     try:
         # Don't use --help as it returns exit code 1, use -V for version instead
         test_result = subprocess.run([bulk_extractor_binary, "-V"], 
-                                   capture_output=True, text=True, timeout=10)
+                                   capture_output=True, text=True, timeout=3)
         if test_result.returncode == 0:
             print(f"    [+] bulk_extractor version: {test_result.stdout.strip()}")
         else:
@@ -220,7 +264,7 @@ def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
 def run_workflow(evidence_path, memory_file=None):
     print("=" * 80)
     print("EDITH-Automater Unified Forensic Workflow (Minimal Prompts)")
-    print("HashDeep → Autopsy → Volatility → ExifTool → BulkExtractor → HashDeep")
+    print("HashDeep -> Autopsy -> Volatility -> ExifTool -> BulkExtractor -> HashDeep")
     print("=" * 80)
 
     # Check if using existing case or generating new case ID
