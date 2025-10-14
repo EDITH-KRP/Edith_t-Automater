@@ -11,20 +11,26 @@ import asyncio
 import logging
 import subprocess
 import shutil
+import re
 from datetime import datetime
 from pathlib import Path
 
 # Add project paths
-PROJECT_ROOT = Path(__file__).parent.parent
+if getattr(sys, "frozen", False):
+    # Executable build (e.g., PyInstaller)
+    PROJECT_ROOT = Path(sys.executable).resolve().parent
+else:
+    PROJECT_ROOT = Path(__file__).resolve().parent
+
 sys.path.append(str(PROJECT_ROOT))
-sys.path.append(str(PROJECT_ROOT / "tools"))
+sys.path.append(str((PROJECT_ROOT / "tools")))
 
 class EDITHOrchestrator:
     """Main orchestrator class for EDITH-Automater"""
 
     def __init__(self):
         self.setup_logging()
-        self.project_root = Path(__file__).parent.parent
+        self.project_root = PROJECT_ROOT
         self.results_dir = self.project_root / "Results"
         self.results_dir.mkdir(exist_ok=True)
         self.logger = logging.getLogger("EDITHOrchestrator")
@@ -40,14 +46,47 @@ class EDITHOrchestrator:
             ]
         )
 
-    def generate_case_id(self, prefix="CASE"):
-        """Generate a new case ID with timestamp"""
-        return f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    def _normalize_case_id(self, raw_case_id):
+        """Normalize any provided case identifier to Case_<ID>_<YYYYMMDD> pattern."""
+        if not raw_case_id:
+            base_id = self.generate_numeric_case_id()
+        else:
+            match = re.search(r"(\d+)", raw_case_id)
+            if match:
+                base_id = match.group(1)
+            else:
+                sanitized = re.sub(r"[^A-Za-z0-9]+", "_", raw_case_id)
+                sanitized = sanitized.strip("_") or "0001"
+                base_id = sanitized.upper()
+        date_str = datetime.now().strftime("%Y%m%d")
+        return f"Case_{base_id}_{date_str}"
+
+    def generate_numeric_case_id(self):
+        """Generate a new incremental numeric case identifier."""
+        existing_cases = [
+            d.name for d in self.results_dir.iterdir()
+            if d.is_dir() and d.name.lower().startswith("case_")
+        ]
+
+        max_num = 0
+        for case_name in existing_cases:
+            parts = case_name.split("_")
+            if len(parts) >= 3 and parts[1].isdigit():
+                max_num = max(max_num, int(parts[1]))
+        return f"{max_num + 1:04d}"
+
+    def generate_case_id(self, prefix="Case"):
+        """Generate a new case ID using Case_<number>_<YYYYMMDD> format."""
+        base_id = self.generate_numeric_case_id()
+        date_str = datetime.now().strftime("%Y%m%d")
+        return f"{prefix}_{base_id}_{date_str}"
 
     def create_case_directory(self, case_id=None):
         """Create a new case directory structure"""
         if case_id is None:
             case_id = self.generate_case_id()
+        else:
+            case_id = self._normalize_case_id(case_id)
 
         case_dir = self.results_dir / case_id
 
@@ -80,7 +119,7 @@ class EDITHOrchestrator:
         """Find the most recent case directory"""
         try:
             case_dirs = [d for d in self.results_dir.iterdir()
-                        if d.is_dir() and d.name.startswith('CASE_')]
+                        if d.is_dir() and d.name.startswith('Case_')]
             if not case_dirs:
                 return None
 
@@ -121,8 +160,7 @@ class EDITHOrchestrator:
         """Ensure case directory structure exists"""
         case_path = Path(case_dir)
         if not case_path.exists():
-            self.logger.error(f"Case directory does not exist: {case_dir}")
-            return False
+            case_path.mkdir(parents=True, exist_ok=True)
 
         # Check and create subdirectories if needed
         subdirs = ["Questions", "HashDeep_output", "Autopsy_output",
@@ -274,6 +312,9 @@ class EDITHOrchestrator:
 
     async def run_forensic_analysis_automated(self, case_id, case_dir, evidence_path, memory_path=None):
         """Run automated forensic analysis using script_3.py"""
+        case_id = self._normalize_case_id(case_id)
+        case_dir = str(self.results_dir / case_id)
+        self.ensure_case_structure(case_dir)
         self.logger.info("Starting Automated Forensic Analysis")
 
         print(f"\n{'='*80}")
@@ -519,13 +560,28 @@ class EDITHOrchestrator:
             "message": message
         }
 
-    async def run_sequential_workflow(self, evidence_path, memory_path=None, interactive=True):
+    async def run_sequential_workflow(self, evidence_path, memory_path=None, interactive=True, case_id=None, case_dir=None):
         """Run evidence collection followed by forensic analysis sequentially"""
         self.logger.info("Starting Sequential Workflow")
+
+        if case_id:
+            case_id = self._normalize_case_id(case_id)
+        else:
+            case_id = self.generate_case_id()
+
+        if case_dir:
+            # respect supplied directory but normalize name
+            case_dir = str(self.results_dir / self._normalize_case_id(Path(case_dir).name))
+        else:
+            case_dir = str(self.results_dir / case_id)
+
+        self.ensure_case_structure(case_dir)
 
         print(f"\n{'='*80}")
         print("EDITH-Automater: SEQUENTIAL WORKFLOW")
         print("Evidence Collection → Forensic Analysis")
+        print(f"Case ID: {case_id}")
+        print(f"Case Directory: {case_dir}")
         print(f"{'='*80}")
 
         # Step 1: Evidence Collection
@@ -533,31 +589,21 @@ class EDITHOrchestrator:
         print("-" * 50)
 
         if interactive:
-            evidence_result = await self.run_evidence_collection_interactive()
+            evidence_result = await self.run_evidence_collection_interactive(case_id=case_id, case_dir=case_dir)
         else:
-            case_dir, case_id = self.create_new_case()
             evidence_result = await self.run_evidence_collection_automated(case_id, case_dir)
 
         if evidence_result["status"] not in ["success", "warning"]:
             print(f"[ERROR] Evidence collection failed, stopping workflow")
             return evidence_result
 
-        case_id = evidence_result["case_id"]
-        case_dir = evidence_result["case_dir"]
-
         # Step 2: Forensic Analysis
         print(f"\n[STEP 2] Forensic Analysis")
         print("-" * 50)
 
-        if case_id and case_dir:
-            forensic_result = await self.run_forensic_analysis_automated(
-                case_id, case_dir, evidence_path, memory_path
-            )
-        else:
-            # Fallback if case info not available
-            forensic_result = await self.run_forensic_analysis_interactive(
-                evidence_path, memory_path, case_id
-            )
+        forensic_result = await self.run_forensic_analysis_automated(
+            case_id, case_dir, evidence_path, memory_path
+        )
 
         # Overall result
         print(f"\n{'='*80}")
@@ -565,8 +611,7 @@ class EDITHOrchestrator:
         print(f"{'='*80}")
         print(f"[STEP 1] Evidence Collection: {evidence_result['status']}")
         print(f"[STEP 2] Forensic Analysis: {forensic_result['status']}")
-        
-        # Show report generation status if available
+
         if forensic_result.get('report_generation'):
             print(f"[STEP 3] Report Generation: {forensic_result['report_generation']['status']}")
 
@@ -580,11 +625,9 @@ class EDITHOrchestrator:
             overall_status = "failed"
             print(f"\n[ERROR] Sequential workflow failed")
 
-        if case_dir:
-            print(f"[INFO] All results saved to: {case_dir}")
-            # Show report generation summary if available
-            if forensic_result.get('report_generation') and forensic_result['report_generation']['status'] == "success":
-                print(f"[INFO] Reports and PDFs generated automatically!")
+        print(f"[INFO] All results saved to: {case_dir}")
+        if forensic_result.get('report_generation') and forensic_result['report_generation']['status'] == "success":
+            print(f"[INFO] Reports and PDFs generated automatically!")
 
         return {
             "status": overall_status,
@@ -594,27 +637,34 @@ class EDITHOrchestrator:
             "forensic_analysis": forensic_result
         }
 
-    async def run_simultaneous_workflow(self, evidence_path, memory_path=None):
+    async def run_simultaneous_workflow(self, evidence_path, memory_path=None, case_id=None, case_dir=None):
         """Run evidence collection and forensic analysis simultaneously"""
         self.logger.info("Starting Simultaneous Integrated Workflow")
+
+        if case_id:
+            case_id = self._normalize_case_id(case_id)
+        else:
+            case_id = self.generate_case_id()
+
+        if case_dir:
+            case_dir = str(self.results_dir / self._normalize_case_id(Path(case_dir).name))
+        else:
+            case_dir = str(self.results_dir / case_id)
+
+        self.ensure_case_structure(case_dir)
 
         print(f"\n{'='*80}")
         print("EDITH-Automater: SIMULTANEOUS INTEGRATED WORKFLOW")
         print("Evidence Collection + Forensic Analysis Running in Parallel")
+        print(f"Case ID: {case_id}")
+        print(f"Case Directory: {case_dir}")
         print(f"{'='*80}")
-
-        # Create case for simultaneous execution
-        case_dir, case_id = self.create_new_case()
-
-        print(f"\n[INFO] Case Created: {case_id}")
-        print(f"[INFO] Case Directory: {case_dir}")
 
         # Run both workflows simultaneously
         print(f"\n[INFO] Starting parallel execution...")
         print(f"[INFO] - Evidence Collection (automated)")
         print(f"[INFO] - Forensic Analysis (automated)")
 
-        # Create tasks for parallel execution
         evidence_task = asyncio.create_task(
             self.run_evidence_collection_automated(case_id, case_dir),
             name="evidence_collection"
@@ -625,7 +675,6 @@ class EDITHOrchestrator:
             name="forensic_analysis"
         )
 
-        # Wait for both tasks to complete
         try:
             evidence_result, forensic_result = await asyncio.gather(
                 evidence_task,
