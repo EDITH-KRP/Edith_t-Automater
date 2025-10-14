@@ -81,6 +81,10 @@ ENV/
 tools/volatility/volatility3/
 tools/volatility/results/
 
+# SleuthKit binaries (large external dependency)
+tools/autopsy/sleuthkit-*/
+tools/autopsy/sleuthkit/
+
 # Autopsy case files
 *.db
 *.db-journal
