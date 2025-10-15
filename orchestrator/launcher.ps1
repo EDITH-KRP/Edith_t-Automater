@@ -768,8 +768,20 @@ if (-not (Test-Path $OrchestratorScript)) {
     exit 1
 }
 
-# Check if Python is available - Updated for Linux compatibility
+# Check if Python is available - Check virtual environment first
 function Test-PythonAvailable {
+    # First, check for virtual environment Python
+    $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    if (Test-Path $VenvPython) {
+        try {
+            $output = & $VenvPython --version 2>&1
+            if ($output -and $output -match "Python") {
+                Write-Info "Virtual environment Python detected: $output"
+                return $VenvPython
+            }
+        } catch { }
+    }
+    
     # Try python3 first (common on Linux)
     try {
         $output = Invoke-Expression "python3 --version 2>&1"
@@ -788,7 +800,7 @@ function Test-PythonAvailable {
         }
     } catch { }
     
-    # If neither works, throw error
+    # If none work, throw error
     throw "Python not found"
 }
 

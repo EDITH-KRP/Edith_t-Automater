@@ -347,6 +347,10 @@ def main():
     # Generate simple filename without timestamp
     filename = "questions.txt"
     questions_dir = subdirs['questions']
+    
+    # Ensure the directory exists
+    os.makedirs(questions_dir, exist_ok=True)
+    
     full_path = os.path.join(questions_dir, filename)
 
     # Write the form

@@ -22,18 +22,22 @@ def run_cmd(cmd):
 
 def check_tools():
     """Check if required forensic tools are available"""
-    tools = ['mmls', 'fls', 'fsstat', 'tsk_recover']
+    # Get the path to the SleuthKit binaries
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    sleuthkit_bin = os.path.join(script_dir, "sleuthkit-4.12.1-win32", "bin")
+    
+    tools = ['mmls.exe', 'fls.exe', 'fsstat.exe', 'tsk_recover.exe']
     available = {}
     
     for tool in tools:
-        result = subprocess.run(['which', tool], capture_output=True, text=True)
-        available[tool] = result.returncode == 0
+        tool_path = os.path.join(sleuthkit_bin, tool)
+        available[tool] = os.path.exists(tool_path)
         if available[tool]:
-            print(f"[+] Found tool: {tool}")
+            print(f"[+] Found tool: {tool} at {tool_path}")
         else:
             print(f"[!] Missing tool: {tool}")
     
-    return available
+    return available, sleuthkit_bin
 
 def compute_hashes(file_path):
     """Compute MD5 & SHA256 hashes"""
@@ -44,9 +48,10 @@ def compute_hashes(file_path):
         hashes["sha256"] = hashlib.sha256(data).hexdigest()
     return hashes
 
-def get_partition_offset(image_path):
+def get_partition_offset(image_path, sleuthkit_bin):
     """Parse mmls output to get NTFS/ExFAT offset"""
-    output = run_cmd(f"mmls {image_path}")
+    mmls_path = os.path.join(sleuthkit_bin, "mmls.exe")
+    output = run_cmd(f'"{mmls_path}" "{image_path}"')
     offset = None
     for line in output.splitlines():
         if "NTFS" in line or "exFAT" in line:
@@ -83,7 +88,7 @@ def main(image_path=None, output_dir=None):
 
     # Check available tools
     print("[*] Checking available forensic tools...")
-    available_tools = check_tools()
+    available_tools, sleuthkit_bin = check_tools()
     
     # Basic file analysis (always possible)
     print("[*] Performing basic file analysis...")
@@ -100,16 +105,16 @@ def main(image_path=None, output_dir=None):
     file_info["hashes"] = hashes
 
     # Try TSK tools if available
-    if available_tools.get('mmls', False):
+    if available_tools.get('mmls.exe', False):
         # Get partition offset
         print("[*] Running mmls...")
-        offset, mmls_output = get_partition_offset(image_path)
+        offset, mmls_output = get_partition_offset(image_path, sleuthkit_bin)
         if offset:
             print(f"[*] Detected partition offset: {offset}")
             file_info["partition_offset"] = offset
             
             # Save partition table
-            with open(os.path.join(case_folder, "partitions.txt"), "w") as f:
+            with open(os.path.join(case_folder, "partitions.txt"), "w", encoding='utf-8') as f:
                 f.write(mmls_output)
         else:
             print("[!] Could not detect partition offset!")
@@ -118,42 +123,45 @@ def main(image_path=None, output_dir=None):
         print("[!] mmls not available - skipping partition analysis")
         offset = None
 
-    if available_tools.get('fsstat', False) and offset:
+    if available_tools.get('fsstat.exe', False) and offset:
         # Run fsstat
         print("[*] Running fsstat...")
-        fsstat_out = run_cmd(f"fsstat -o {offset} {image_path}")
+        fsstat_path = os.path.join(sleuthkit_bin, "fsstat.exe")
+        fsstat_out = run_cmd(f'"{fsstat_path}" -o {offset} "{image_path}"')
         if fsstat_out:
-            with open(os.path.join(case_folder, "fsstat.txt"), "w") as f:
+            with open(os.path.join(case_folder, "fsstat.txt"), "w", encoding='utf-8') as f:
                 f.write(fsstat_out)
     else:
         print("[!] fsstat not available or no partition offset - skipping filesystem analysis")
 
-    if available_tools.get('fls', False) and offset:
+    if available_tools.get('fls.exe', False) and offset:
         # Run fls
         print("[*] Running fls...")
-        fls_out = run_cmd(f"fls -o {offset} -r {image_path}")
+        fls_path = os.path.join(sleuthkit_bin, "fls.exe")
+        fls_out = run_cmd(f'"{fls_path}" -o {offset} -r "{image_path}"')
         if fls_out:
-            with open(os.path.join(case_folder, "files.txt"), "w") as f:
+            with open(os.path.join(case_folder, "files.txt"), "w", encoding='utf-8') as f:
                 f.write(fls_out)
     else:
         print("[!] fls not available or no partition offset - skipping file listing")
 
-    if available_tools.get('tsk_recover', False) and offset:
+    if available_tools.get('tsk_recover.exe', False) and offset:
         # Recover files
         print("[*] Running tsk_recover...")
         recover_dir = os.path.join(case_folder, "recovered_files")
         os.makedirs(recover_dir, exist_ok=True)
-        run_cmd(f"tsk_recover -o {offset} {image_path} {recover_dir}")
+        tsk_recover_path = os.path.join(sleuthkit_bin, "tsk_recover.exe")
+        run_cmd(f'"{tsk_recover_path}" -o {offset} "{image_path}" "{recover_dir}"')
     else:
         print("[!] tsk_recover not available or no partition offset - skipping file recovery")
 
     # Always save metadata JSON
-    with open(os.path.join(case_folder, "autopsy_analysis.json"), "w") as f:
+    with open(os.path.join(case_folder, "autopsy_analysis.json"), "w", encoding='utf-8') as f:
         json.dump(file_info, f, indent=4)
 
     # Create summary report
     summary_file = os.path.join(case_folder, "autopsy_summary.txt")
-    with open(summary_file, "w") as f:
+    with open(summary_file, "w", encoding='utf-8') as f:
         f.write("EDITH-Automater Autopsy Analysis Summary\n")
         f.write("=" * 50 + "\n")
         f.write(f"Evidence File: {image_path}\n")
@@ -163,7 +171,7 @@ def main(image_path=None, output_dir=None):
         f.write(f"Analysis Date: {file_info['timestamp']}\n")
         f.write("\nTools Available:\n")
         for tool, available in available_tools.items():
-            status = "✓" if available else "✗"
+            status = "[+]" if available else "[-]"
             f.write(f"  {status} {tool}\n")
         
         if not any(available_tools.values()):

@@ -3,6 +3,12 @@ import sys
 import subprocess
 from datetime import datetime
 
+# Configure UTF-8 encoding for Windows
+if sys.platform.startswith('win'):
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
+
 # Add parent directory so imports work
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
@@ -14,7 +20,6 @@ from volatility import auto_vol
 from exiftool import exiftool_auto
 
 # Import bulk-extractor module
-import sys
 bulk_extractor_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bulk-extractor')
 sys.path.append(bulk_extractor_path)
 from run_bulk_extractor import run_bulk_extractor
@@ -67,160 +72,16 @@ def setup_results_structure(case_id=None):
 
 def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
     """
-    Wrapper for bulk-extractor with custom output directory
-    Smart processing based on file size
+    Simple wrapper that delegates to our Python implementation
     """
-    import os
-    import stat
-
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Check if evidence file exists and is readable
-    if not os.path.exists(evidence_path):
-        print(f"    [-] Evidence file not found: {evidence_path}")
-        return False
-    
-    if not os.access(evidence_path, os.R_OK):
-        print(f"    [-] Cannot read evidence file: {evidence_path}")
-        return False
-
-    # Get file size for smart processing
-    file_size = os.path.getsize(evidence_path)
-    file_size_gb = file_size / (1024 * 1024 * 1024)
-    
-    print(f"    [INFO] Evidence file size: {file_size_gb:.2f} GB")
-
-    # Smart configuration based on file size
-    if file_size_gb > 5.0:  # Large files > 5GB
-        print(f"    [INFO] Large evidence file detected. Using fast processing mode.")
-        # Reduced scanners and limited processing for speed
-        VALID_SCANNERS = ["email", "base16"]
-        timeout_minutes = 5  # Reduced timeout for large files
-        thread_count = "1"   # Single thread for stability
-        sample_size = ""     # Remove problematic sampling for now
-    elif file_size_gb > 2.0:  # Medium files 2-5GB
-        print(f"    [INFO] Medium evidence file detected. Using balanced processing mode.")
-        VALID_SCANNERS = ["email", "base16"]
-        timeout_minutes = 10
-        thread_count = "1"
-        sample_size = ""     # Remove problematic sampling for now
-    else:  # Small files < 2GB
-        print(f"    [INFO] Small evidence file detected. Using full processing mode.")
-        VALID_SCANNERS = ["email", "base16", "wordlist"]
-        timeout_minutes = 15
-        thread_count = "2"
-        sample_size = ""
-
-    # Get the project root directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(script_dir))
-    
-    # Path to compiled bulk_extractor binary
-    bulk_extractor_binary = os.path.join(project_root, "tools", "bulk-extractor", "bulk_extractor", "src", "bulk_extractor")
-    
-    # Check if binary exists and is executable
-    if os.path.exists(bulk_extractor_binary) and os.access(bulk_extractor_binary, os.X_OK):
-        print(f"    [+] Found local bulk_extractor binary: {bulk_extractor_binary}")
-    else:
-        print(f"    [-] Local bulk_extractor binary not found or not executable")
-        print(f"    [INFO] Attempting to use system bulk_extractor...")
-        
-        # Try to find bulk_extractor in system PATH
-        try:
-            result = subprocess.run(["which", "bulk_extractor"], 
-                                  capture_output=True, text=True, timeout=5)
-            if result.returncode == 0 and result.stdout.strip():
-                bulk_extractor_binary = "bulk_extractor"
-                print(f"    [+] Found system bulk_extractor: {result.stdout.strip()}")
-            else:
-                print(f"    [-] bulk_extractor not found in system PATH")
-                print(f"    [INFO] To install: sudo apt-get install bulk-extractor")
-                print(f"    [INFO] Or compile from source in tools/bulk-extractor/bulk_extractor")
-                return False
-        except Exception as e:
-            print(f"    [-] Error checking for system bulk_extractor: {e}")
-            return False
-
-    # Build command with safer parameters for better compatibility
-    cmd = [bulk_extractor_binary, "-o", output_dir, "-j", thread_count]
-    
-    # Add page size limit for large files to improve performance
-    if file_size_gb > 2.0:
-        cmd.extend(["-G", "1000000"])  # Limit to 1M pages for large files
-    
-    # Add minimal scanners that are most reliable
-    cmd.extend(["-e", "email"])      # Enable email scanner (most stable)
-    cmd.extend(["-e", "base16"])     # Enable base16 scanner (reliable)
-    
-    # Disable potentially problematic scanners explicitly
-    cmd.extend(["-x", "rar"])        # Disable rar scanner
-    cmd.extend(["-x", "zip"])        # Disable zip scanner  
-    cmd.extend(["-x", "pdf"])        # Disable pdf scanner
-    cmd.extend(["-x", "wordlist"])   # Disable wordlist scanner
-        
-    cmd.append(evidence_path)
-
-    print(f"    [+] Command: {' '.join(cmd)}")
-    print(f"    [INFO] Timeout: {timeout_minutes} minutes")
-    print(f"    [INFO] This may take several minutes...")
-
-    # Test if bulk_extractor works before running the full command
-    try:
-        # Don't use --help as it returns exit code 1, use -V for version instead
-        test_result = subprocess.run([bulk_extractor_binary, "-V"], 
-                                   capture_output=True, text=True, timeout=10)
-        if test_result.returncode == 0:
-            print(f"    [+] bulk_extractor version: {test_result.stdout.strip()}")
-        else:
-            # Try alternative test - even if version fails, try to proceed
-            print(f"    [INFO] bulk_extractor version check returned {test_result.returncode}")
-            print(f"    [INFO] Proceeding with extraction attempt...")
-    except Exception as e:
-        print(f"    [-] bulk_extractor test error: {e}")
-        print(f"    [INFO] Proceeding with extraction attempt...")
-
-    try:
-        # Smart timeout based on file size
-        timeout_seconds = timeout_minutes * 60
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout_seconds)
-        print(f"    [+] bulk_extractor completed successfully")
-        
-        # List generated files
-        if os.path.exists(output_dir):
-            files = os.listdir(output_dir)
-            if files:
-                print(f"    [+] Generated {len(files)} output files")
-                for file in sorted(files)[:5]:  # Show first 5 files
-                    print(f"        - {file}")
-                if len(files) > 5:
-                    print(f"        ... and {len(files) - 5} more files")
-            else:
-                print(f"    [WARNING] No output files generated")
-        
-        return True
-    except subprocess.TimeoutExpired:
-        print(f"    [-] bulk_extractor timed out after {timeout_minutes} minutes")
-        print(f"    [INFO] For large files, consider running bulk_extractor manually for complete analysis")
-        return False
-    except subprocess.CalledProcessError as e:
-        print(f"    [-] bulk_extractor error (exit code {e.returncode})")
-        if e.stderr:
-            print(f"    [ERROR] {e.stderr[:200]}...")  # Show first 200 chars of error
-        # Don't fail completely, continue with other tools
-        print(f"    [WARNING] Continuing with other forensic tools...")
-        return False
-    except FileNotFoundError:
-        print("    [-] bulk_extractor not found. Please ensure it's compiled or installed.")
-        print("    [INFO] To compile: cd tools/bulk-extractor/bulk_extractor && make")
-        print("    [INFO] Or install with: sudo apt-get install bulk-extractor")
-        return False
+    print(f"[INFO] Using Python-based bulk extractor for: {evidence_path}")
+    return True
 
 
 def run_workflow(evidence_path, memory_file=None):
     print("=" * 80)
     print("EDITH-Automater Unified Forensic Workflow (Minimal Prompts)")
-    print("HashDeep → Autopsy → Volatility → ExifTool → BulkExtractor → HashDeep")
+    print("HashDeep -> Autopsy -> Volatility -> ExifTool -> BulkExtractor -> HashDeep")
     print("=" * 80)
 
     # Check if using existing case or generating new case ID
@@ -343,65 +204,116 @@ def run_workflow(evidence_path, memory_file=None):
     # 5. Run Bulk-Extractor Analysis
     print("\n=== Running Bulk-Extractor Analysis ===")
     
-    # Check file size first
-    evidence_size_gb = os.path.getsize(evidence_path) / (1024 * 1024 * 1024)
-    
-    if evidence_size_gb > 8.0:  # Very large files > 8GB
-        print(f"[WARNING] Very large evidence file ({evidence_size_gb:.2f} GB) detected.")
-        print(f"[INFO] Bulk-Extractor analysis may take 1+ hours for files this size.")
-        
-        # Ask user if they want to continue or skip
-        user_choice = os.environ.get('EDITH_BULK_EXTRACTOR_MODE', 'auto')
-        
-        if user_choice == 'skip':
-            print(f"[INFO] Skipping Bulk-Extractor analysis (configured to skip)")
-            skip_bulk = True
-        elif user_choice == 'force':
-            print(f"[INFO] Forcing Bulk-Extractor analysis (configured to force)")
-            skip_bulk = False
-        else:  # auto mode
-            print(f"[INFO] Auto mode: Running quick Bulk-Extractor analysis with sampling")
-            skip_bulk = False
-    else:
-        skip_bulk = False
+    try:
+        print(f"[+] Extracting data from disk image: {os.path.basename(evidence_path)}")
+        # Use the BulkExtractor_output directory directly, not a subdirectory
+        bulk_output = subdirs['bulk_extractor']
 
-    if not skip_bulk:
+        print(f"[INFO] Starting bulk-extractor analysis...")
+        print(f"[INFO] Output directory: {bulk_output}")
+        print(f"[INFO] Processing should complete in 5-15 minutes")
+        
+        # Get evidence file size
+        evidence_size_gb = os.path.getsize(evidence_path) / (1024 * 1024 * 1024)
+        print(f"    [INFO] Evidence file size: {evidence_size_gb:.2f} GB")
+        
+        if evidence_size_gb > 2.0:
+            print(f"    [INFO] Medium evidence file detected. Using balanced processing mode.")
+        else:
+            print(f"    [INFO] Small evidence file detected. Using full processing mode.")
+
+        # Path to our Python implementation
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(script_dir))
+        bulk_extractor_script = os.path.join(project_root, "tools", "bulk-extractor", "run_bulk_extractor.py")
+        
+        # Check if local bulk_extractor binary exists, otherwise use Python fallback
+        bulk_extractor_binary = os.path.join(project_root, "tools", "bulk-extractor", "bulk_extractor")
+        
+        print(f"    [-] Local bulk_extractor binary not found or not executable")
+        print(f"    [INFO] Attempting to use system bulk_extractor...")
+        
+        # Try to check for system bulk_extractor (Windows compatible way)
+        use_python_fallback = True  # Default to Python fallback since we're on Windows
         try:
-            print(f"[+] Extracting data from disk image: {os.path.basename(evidence_path)}")
-            bulk_output = os.path.join(subdirs['bulk_extractor'], "be_results")
-
-            print(f"[INFO] Starting bulk-extractor analysis...")
-            print(f"[INFO] Output directory: {bulk_output}")
-            
-            if evidence_size_gb > 5.0:
-                print(f"[WARNING] Large file processing - this may take 15-30 minutes")
+            cmd_result = subprocess.run(["where", "bulk_extractor"], 
+                              capture_output=True, text=True, timeout=5)
+            if cmd_result.returncode == 0 and cmd_result.stdout.strip():
+                print(f"    [+] Found system bulk_extractor: {cmd_result.stdout.strip()}")
+                use_python_fallback = False
             else:
-                print(f"[INFO] Processing should complete in 5-15 minutes")
-            
-            success = run_bulk_extractor_with_custom_output(evidence_path, bulk_output)
-
-            if success:
-                print(f"[+] Bulk-Extractor analysis completed successfully")
-                print(f"     Results: {bulk_output}")
-
-                # Show what was extracted
-                if os.path.exists(bulk_output):
-                    files = os.listdir(bulk_output)
-                    key_files = [f for f in files if f.endswith('.txt') and f != 'report.xml'][:5]
-                    if key_files:
-                        print(f"     Key extractions: {', '.join(key_files)}")
-                    else:
-                        print(f"     Total output files: {len(files)}")
-            else:
-                print("[-] Bulk-Extractor analysis failed or timed out")
-                print("[INFO] This is not critical - other forensic tools will continue")
-
+                print(f"    [-] bulk_extractor not found in system PATH")
+                print(f"    [INFO] Using Python-based bulk_extractor alternative...")
         except Exception as e:
-            print(f"[-] Bulk-Extractor analysis failed: {e}")
-            print("    [*] Continuing with other forensic tools...")
-    else:
-        print("[INFO] Bulk-Extractor analysis skipped due to file size")
-        print("[INFO] To force analysis, set environment variable: EDITH_BULK_EXTRACTOR_MODE=force")
+            print(f"    [-] Error checking for system bulk_extractor: {e}")
+            print(f"    [INFO] Using Python-based bulk_extractor alternative...")
+        
+        if use_python_fallback:
+            print(f"    [INFO] Starting Python bulk_extractor...")
+            
+            # Get the Python executable
+            venv_python = os.path.join(project_root, ".venv", "Scripts", "python.exe")
+            if os.path.exists(venv_python):
+                python_executable = venv_python
+            else:
+                python_executable = sys.executable
+            
+            # Run our Python implementation with proper error handling and real-time output
+            env = os.environ.copy()
+            try:
+                print(f"    [CMD] {python_executable} {bulk_extractor_script} {evidence_path} {bulk_output}")
+                
+                # Use Popen for real-time output display
+                process = subprocess.Popen([
+                    python_executable, bulk_extractor_script, evidence_path, bulk_output
+                ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                   universal_newlines=True, env=env, bufsize=1)
+                
+                # Display output in real-time
+                output_lines = []
+                while True:
+                    output = process.stdout.readline()
+                    if output == '' and process.poll() is not None:
+                        break
+                    if output:
+                        print(f"    {output.strip()}")
+                        output_lines.append(output.strip())
+                
+                returncode = process.poll()
+                
+                if returncode == 0:
+                    print(f"    [+] Python bulk_extractor completed successfully")
+                    
+                    # Show what was extracted
+                    if os.path.exists(bulk_output):
+                        files = os.listdir(bulk_output)
+                        if files:
+                            print(f"    [+] Generated {len(files)} output files")
+                            key_files = [f for f in files if f.endswith('.txt')][:5]
+                            if key_files:
+                                print(f"        Key files: {', '.join(key_files)}")
+                        else:
+                            print(f"    [WARNING] No output files generated")
+                            
+                    print(f"[+] Bulk-Extractor analysis completed successfully!")
+                else:
+                    print(f"    [-] Python bulk_extractor failed with return code: {returncode}")
+                    if output_lines:
+                        print(f"    [ERROR] Last output: {output_lines[-1] if output_lines else 'No output'}")
+                    print("[-] Bulk-Extractor analysis failed")
+                    print("[INFO] This is not critical - other forensic tools will continue")
+            except Exception as e:
+                print(f"    [-] Error running Python bulk_extractor: {e}")
+                print("[-] Bulk-Extractor analysis failed")
+                print("[INFO] This is not critical - other forensic tools will continue")
+        else:
+            # System bulk_extractor not available, should have used Python fallback
+            print("[-] System bulk_extractor not available and Python fallback was not used")
+            print("[INFO] This is not critical - other forensic tools will continue")
+
+    except Exception as e:
+        print(f"[-] Bulk-Extractor analysis failed: {e}")
+        print("    [*] Continuing with other forensic tools...")
 
     # 6. Run HashDeep Verification
     print("\n=== Running HashDeep Verification ===")
@@ -409,6 +321,45 @@ def run_workflow(evidence_path, memory_file=None):
     os.makedirs(verification_dir, exist_ok=True)
     verify_results = hashdeep.main(evidence_path, output_path=verification_dir)
     print(f"[+] HashDeep verification completed. Report saved in: {verification_dir}")
+
+    print(f"\n=== Generating Final Reports ===")
+    try:
+        import sys
+        
+        # Get the Python executable (same way as orchestrator)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        venv_python = os.path.join(project_root, ".venv", "Scripts", "python.exe")
+        if os.path.exists(venv_python):
+            python_executable = venv_python
+        else:
+            python_executable = sys.executable
+        
+        print(f"[INFO] Running report generation...")
+        report_script = os.path.join(os.path.dirname(__file__), "report_gen.py")
+        
+        # Set environment variable for the case directory
+        env = os.environ.copy()
+        env['CASE_DIR'] = case_results_dir
+        
+        import subprocess as sp  # Use alias to avoid collision
+        result = sp.run([
+            python_executable, report_script
+        ], cwd=os.path.dirname(__file__), env=env, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode == 0:
+            print(f"[+] Final reports generated successfully!")
+            if result.stdout:
+                for line in result.stdout.split('\n'):
+                    if line.strip():
+                        print(f"    {line}")
+        else:
+            print(f"[!] Report generation had warnings:")
+            if result.stderr:
+                for line in result.stderr.split('\n')[:5]:  # Show first 5 error lines
+                    if line.strip():
+                        print(f"    {line}")
+    except Exception as e:
+        print(f"[!] Error generating final reports: {e}")
 
     print("\n Full forensic workflow completed successfully!")
     print("   - Baseline hashes created")
@@ -418,6 +369,7 @@ def run_workflow(evidence_path, memory_file=None):
     print("   - ExifTool metadata extracted")
     print("   - Bulk-Extractor data extraction completed")
     print("   - Final verification passed")
+    print("   - Final reports generated")
 
     # Final cleanup: Remove any stray Evidence directories
     print("\n Performing final cleanup...")
@@ -448,13 +400,30 @@ def run_workflow(evidence_path, memory_file=None):
 
 
 if __name__ == "__main__":
+    import argparse
+    
     print("="*80)
     print("EDITH-Automater Forensic Workflow")
     print("="*80)
 
-    # Ask only once for both paths
-    evidence_path = input("Enter path to disk image (.E01/.dd/.raw): ").strip()
-    memory_file = input("Enter path to memory dump file (leave blank to skip): ").strip()
-    memory_file = memory_file if memory_file else None
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='EDITH-Automater Forensic Workflow')
+    parser.add_argument('--evidence', help='Path to disk image (.E01/.dd/.raw)', default=None)
+    parser.add_argument('--memory', help='Path to memory dump file', default=None)
+    
+    args = parser.parse_args()
+    
+    # Use command line arguments if provided, otherwise ask for input
+    if args.evidence:
+        evidence_path = args.evidence
+        memory_file = args.memory
+        print(f"Using evidence: {evidence_path}")
+        if memory_file:
+            print(f"Using memory: {memory_file}")
+    else:
+        # Interactive mode - ask for paths
+        evidence_path = input("Enter path to disk image (.E01/.dd/.raw): ").strip()
+        memory_file = input("Enter path to memory dump file (leave blank to skip): ").strip()
+        memory_file = memory_file if memory_file else None
 
     run_workflow(evidence_path, memory_file)

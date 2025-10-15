@@ -13,6 +13,9 @@ class VolatilityAnalyzer:
         self.vol_path = self.script_dir / "volatility3" / "vol.py"
         self.mem_dir = self.script_dir / "mem"
         
+        # Get the correct Python executable
+        self.python_executable = self.get_python_executable()
+        
         # Use custom results directory if provided, otherwise use default
         if custom_results_dir:
             self.results_dir = Path(custom_results_dir)
@@ -69,6 +72,17 @@ class VolatilityAnalyzer:
             "windows.filescan", "windows.registry.hivelist"
         ]
 
+    def get_python_executable(self):
+        """Get the correct Python executable, preferring virtual environment"""
+        # Try to find the virtual environment Python
+        project_root = self.script_dir.parent.parent
+        venv_python = project_root / ".venv" / "Scripts" / "python.exe"
+        if venv_python.exists():
+            return str(venv_python)
+        
+        # Fall back to current sys.executable
+        return sys.executable
+
     def find_memory_files(self):
         """Find all memory dump files in the mem directory"""
         memory_extensions = ['*.mem', '*.dmp', '*.raw', '*.vmem', '*.dd', '*.bin', '*.sav']
@@ -85,7 +99,7 @@ class VolatilityAnalyzer:
         
         try:
             result = subprocess.run(
-                ["python3", str(self.vol_path), "-f", memory_file, "windows.info"],
+                [self.python_executable, str(self.vol_path), "-f", memory_file, "windows.info"],
                 capture_output=True, text=True, timeout=30
             )
             
@@ -94,7 +108,7 @@ class VolatilityAnalyzer:
             else:
                 # Try Linux profile
                 result = subprocess.run(
-                    ["python3", str(self.vol_path), "-f", memory_file, "linux.info"],
+                    [self.python_executable, str(self.vol_path), "-f", memory_file, "linux.info"],
                     capture_output=True, text=True, timeout=30
                 )
                 if result.returncode == 0:
@@ -114,7 +128,7 @@ class VolatilityAnalyzer:
         try:
             with open(output_file, "w", encoding='utf-8') as f:
                 result = subprocess.run(
-                    ["python3", str(self.vol_path), "-f", memory_file, plugin],
+                    [self.python_executable, str(self.vol_path), "-f", memory_file, plugin],
                     stdout=f, stderr=subprocess.PIPE, text=True, timeout=300
                 )
                 
