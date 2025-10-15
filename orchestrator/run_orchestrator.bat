@@ -31,7 +31,7 @@ echo.
 echo Main Menu - Choose Your Forensic Workflow:
 echo.
 echo  1. Sequential Workflow
-echo     Interactive evidence collection → Automated forensic analysis
+echo     Interactive evidence collection -> Automated forensic analysis
 echo.
 echo  2. Case Management
 echo     List, view, and manage existing cases
