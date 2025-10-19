@@ -6,6 +6,8 @@
 [![Python](https://img.shields.io/badge/Python-3.8%2B-green.svg)]()
 [![License](https://img.shields.io/badge/License-Educational%20Use-orange.svg)]()
 
+![Workflow](Old-workflow.png)
+
 > **A comprehensive digital forensics automation framework that streamlines the entire digital investigation process from evidence acquisition to professional report generation.**
 
 ---
