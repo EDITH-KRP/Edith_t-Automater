@@ -293,8 +293,6 @@ python create_usb_portable.py
 ## **Support & Documentation**
 
 ### **Getting Help**
-- **Build Guide**: [BUILD_INSTRUCTIONS.md](BUILD_INSTRUCTIONS.md)
-- **Quick Start**: [QUICK_START_EXE_BUILD.md](QUICK_START_EXE_BUILD.md)
 - **Issues**: Check the `Results/` directory for analysis logs
 - **Tips**: Use the interactive launcher for guided workflows
 
