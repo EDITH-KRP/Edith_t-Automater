@@ -1,46 +1,187 @@
-# Consolidated requirements for all tools in the Edith_t-Automater toolkit
+# EDITH-Automater Comprehensive Requirements
+# Digital Forensics Automation Framework Dependencies
+# Compatible with Python 3.8+ | Tested on Windows 10/11
 
-# ------ Exiftool Dependencies ------
-# Core dependencies for metadata extraction
+# ================================================================
+# CORE FORENSIC FRAMEWORKS
+# ================================================================
+
+# Volatility3 - Advanced Memory Analysis Framework
+volatility3>=2.5.0
+capstone>=4.0,<6.0
+pycryptodome>=3.19.0
+pefile>=2023.2.7
+yara-python>=4.3.1
+jsonschema>=4.19.0
+snappy>=1.1.9
+
+# Sleuth Kit Python Bindings - File System Analysis
+pytsk3>=20231007
+libewf-python>=20230212
+libvmdk-python>=20221124
+libvhdi-python>=20221124
+
+# ================================================================
+# AUTOMATION & WEB SCRAPING
+# ================================================================
+
+# Playwright - Web Automation for Modern Forensics
+playwright>=1.40.0
+selenium>=4.15.0
+beautifulsoup4>=4.12.0
+requests>=2.31.0
+urllib3>=2.0.0
+
+# ================================================================
+# FILE FORMAT ANALYSIS
+# ================================================================
+
+# Image & Media Analysis
+Pillow>=10.1.0
 exifread>=3.0.0
-Pillow>=9.0.0
-pandas>=1.3.0
-mutagen>=1.45.0
-hachoir>=3.1.0
+mutagen>=1.47.0
 python-magic-bin>=0.4.14
-PyPDF2>=3.0.0  # For metadata removal
+imageio>=2.31.0
+opencv-python>=4.8.0
 
-# ------ Hashdeep Dependencies ------
-pathlib2>=2.3.7; python_version < '3.4'
+# Document Analysis
+PyPDF2>=3.0.1
+python-docx>=1.1.0
+openpyxl>=3.1.0
+xlrd>=2.0.1
+python-pptx>=0.6.22
+
+# Archive & Compression
+py7zr>=0.20.0
+rarfile>=4.1
+zipfile38>=0.0.3
+
+# ================================================================
+# NETWORK & PROTOCOL ANALYSIS
+# ================================================================
+
+# Network Forensics
+scapy>=2.5.0
+dpkt>=1.9.8
+pyshark>=0.6
+netaddr>=0.9.0
+dnspython>=2.4.0
+
+# ================================================================
+# CRYPTOGRAPHY & HASHING
+# ================================================================
+
+# Advanced Hashing & Crypto
+hashlib-compat>=1.0.1
+cryptography>=41.0.0
+bcrypt>=4.1.0
+passlib>=1.7.4
+pycrypto>=2.6.1
+
+# ================================================================
+# REPORTING & VISUALIZATION
+# ================================================================
+
+# Report Generation
+reportlab>=4.0.0
+weasyprint>=60.0
+jinja2>=3.1.0
+markdown>=3.5.0
+plotly>=5.17.0
+
+# ================================================================
+# SYSTEM & PROCESS MONITORING
+# ================================================================
+
+# System Analysis
+psutil>=5.9.6
+wmi>=1.5.1; sys_platform == "win32"
+pywin32>=306; sys_platform == "win32"
+distro>=1.8.0; sys_platform != "win32"
+
+# ================================================================
+# LOGGING & CONFIGURATION
+# ================================================================
+
+# Enhanced Logging & Config
 coloredlogs>=15.0.1
+rich>=13.6.0
+click>=8.1.0
+pyyaml>=6.0.1
+configparser>=6.0.0
+toml>=0.10.2
+
+# ================================================================
+# UTILITY LIBRARIES
+# ================================================================
+
+# Core Utilities
+tqdm>=4.66.0
 ujson>=5.8.0
-typing-extensions>=4.7.1
-tqdm>=4.66.1
-python-dateutil>=2.8.2
-psutil>=5.9.5
-pathspec>=0.11.2
-rich>=13.5.2
-pathlib-mate>=1.0.0
+python-dateutil>=2.8.0
+typing-extensions>=4.8.0
+pathspec>=0.11.0
+pathlib-mate>=1.3.0
+regex>=2023.10.0
 
-# ------ Volatility3 Dependencies ------
-capstone>=4.0,<5.0
-pycryptodome>=3.9,<4.0
-pefile>=2023.2.7,<2025.0
-yara-python>=4.2,<5.0
-jsonschema>=4.0,<5.0
+# File Handling
+hachoir>=3.2.0
+python-magic>=0.4.27
+chardet>=5.2.0
 
-# ------ Bulk Extractor Dependencies ------
-# The bulk_extractor tool uses only standard Python libraries
-# and relies on the external bulk_extractor executable
+# ================================================================
+# TESTING & DEVELOPMENT
+# ================================================================
 
-# ------ Autopsy Dependencies ------
-# Autopsy script uses only standard Python libraries
-
-# ------ Testing Dependencies ------
-# Included for development and testing purposes only
-pytest>=7.4.2
+# Testing Framework
+pytest>=7.4.0
 pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+coverage>=7.3.0
 
-# Python version compatibility note
-# Minimum Python 3.8 recommended for all tools
-# Python 3.11 or newer may have compatibility issues with some components
+# Code Quality
+black>=23.9.0
+flake8>=6.1.0
+mypy>=1.6.0
+bandit>=1.7.0
+
+# ================================================================
+# MEMORY & PERFORMANCE
+# ================================================================
+
+# Memory Management
+memory-profiler>=0.61.0
+pympler>=0.9
+objgraph>=3.6.0
+
+# Performance Optimization
+numba>=0.58.0
+cython>=3.0.0
+
+# ================================================================
+# EXTERNAL TOOL INTEGRATION
+# ================================================================
+
+# External Process Management
+subprocess32>=3.5.4; python_version < '3.0'
+pexpect>=4.8.0; sys_platform != "win32"
+wexpect>=4.0.0; sys_platform == "win32"
+
+# ================================================================
+# COMPATIBILITY NOTES
+# ================================================================
+
+# Python Version Requirements:
+# - Minimum: Python 3.8
+# - Recommended: Python 3.9-3.11
+# - Note: Python 3.12+ may have compatibility issues with some forensic tools
+
+# Windows-specific packages are conditionally installed
+# Linux/macOS alternatives are provided where applicable
+
+# For Volatility3 symbols, download separately from:
+# https://volatilityfoundation.org/volatility3#symbols
+
+# For Sleuth Kit, ensure TSK binaries are installed:
+# Windows: Download from sleuthkit.org
+# Linux: sudo apt-get install sleuthkit
