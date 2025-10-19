@@ -31,11 +31,18 @@ def run_bulk_extractor(input_file, output_dir=None):
             from bulk_extractor import BulkExtractorAlternative
             
             extractor = BulkExtractorAlternative()
-            extractor.run_extraction(input_file, output_dir)
-            print(f"\n[SUCCESS] Extraction complete. Results saved in: {output_dir}")
-            return
+            success = extractor.run_extraction(input_file, output_dir)
+            if success:
+                print(f"\n[SUCCESS] Extraction complete. Results saved in: {output_dir}")
+                return
+            else:
+                print(f"[ERROR] Python bulk_extractor failed")
+                return
+        except ImportError as e:
+            print(f"[ERROR] Could not import bulk_extractor module: {e}")
+            print("Falling back to command line version...")
         except Exception as e:
-            print(f" Error with Python implementation: {e}")
+            print(f"[ERROR] Error with Python implementation: {e}")
             print("Falling back to command line version...")
 
     # Fallback to command line version

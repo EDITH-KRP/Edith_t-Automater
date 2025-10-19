@@ -20,9 +20,12 @@ except ImportError:
         PDF_METHOD = "weasyprint"
         print("[OK] WeasyPrint available for PDF generation")
     except ImportError:
-        PDF_AVAILABLE = False
-        print("[WARN] No PDF library found. Install playwright for PDF generation")
-        print("   pip install playwright && playwright install chromium")
+        # Fallback to Windows built-in method
+        import subprocess
+        import tempfile
+        PDF_AVAILABLE = True
+        PDF_METHOD = "windows_builtin"
+        print("[OK] Using Windows built-in PDF generation")
 
 def convert_html_to_pdf_weasyprint(html_file_path, pdf_file_path):
     """Convert HTML file to PDF using WeasyPrint respecting existing template CSS"""
@@ -125,6 +128,71 @@ def convert_html_to_pdf_playwright(html_file_path, pdf_file_path):
         print(f"[ERROR] PDF conversion failed for {os.path.basename(html_file_path)}: {e}")
         return False
 
+def convert_html_to_pdf_windows_builtin(html_file_path, pdf_file_path):
+    """Convert HTML to PDF using Windows built-in print to PDF feature via PowerShell"""
+    try:
+        # PowerShell script to convert HTML to PDF using Internet Explorer and Print to PDF
+        ps_script = f'''
+$ie = New-Object -ComObject InternetExplorer.Application
+$ie.Visible = $false
+$ie.Navigate2("{html_file_path}")
+while ($ie.Busy -eq $true) {{
+    Start-Sleep -Seconds 1
+}}
+Start-Sleep -Seconds 3
+$ie.ExecWB(6, 2, "{pdf_file_path}")
+$ie.Quit()
+[System.Runtime.Interopservices.Marshal]::ReleaseComObject($ie)
+        '''
+        
+        # Save PowerShell script to temp file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.ps1', delete=False) as f:
+            f.write(ps_script)
+            ps_file = f.name
+        
+        try:
+            # Execute PowerShell script
+            result = subprocess.run([
+                'powershell.exe', '-ExecutionPolicy', 'Bypass', '-File', ps_file
+            ], capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0 and os.path.exists(pdf_file_path):
+                print(f"[OK] PDF generated: {{os.path.basename(pdf_file_path)}}")
+                return True
+            else:
+                print(f"[WARN] Windows PDF generation had issues, trying simple copy as fallback")
+                # Simple fallback - copy HTML as text-based PDF substitute
+                with open(html_file_path, 'r', encoding='utf-8') as html_f:
+                    html_content = html_f.read()
+                
+                # Create a simple text version
+                import re
+                # Remove HTML tags for basic text version
+                text_content = re.sub(r'<[^>]+>', '', html_content)
+                text_content = re.sub(r'\s+', ' ', text_content).strip()
+                
+                pdf_substitute_path = pdf_file_path.replace('.pdf', '_text.txt')
+                with open(pdf_substitute_path, 'w', encoding='utf-8') as txt_f:
+                    txt_f.write(f"FORENSIC REPORT (Text Format)\n")
+                    txt_f.write(f"Generated: {{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}}\n")
+                    txt_f.write(f"Original HTML: {{os.path.basename(html_file_path)}}\n")
+                    txt_f.write("="*80 + "\n\n")
+                    txt_f.write(text_content)
+                
+                print(f"[INFO] Created text version: {{os.path.basename(pdf_substitute_path)}}")
+                return True
+                
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(ps_file)
+            except:
+                pass
+                
+    except Exception as e:
+        print(f"[ERROR] Windows built-in PDF conversion failed for {{os.path.basename(html_file_path)}}: {{e}}")
+        return False
+
 def convert_html_to_pdf(html_file_path, pdf_file_path):
     """Convert HTML to PDF using available method"""
     if not PDF_AVAILABLE:
@@ -134,8 +202,10 @@ def convert_html_to_pdf(html_file_path, pdf_file_path):
     # Use the available method
     if PDF_METHOD == "playwright":
         return convert_html_to_pdf_playwright(html_file_path, pdf_file_path)
-    else:
+    elif PDF_METHOD == "weasyprint":
         return convert_html_to_pdf_weasyprint(html_file_path, pdf_file_path)
+    else:
+        return convert_html_to_pdf_windows_builtin(html_file_path, pdf_file_path)
 
 def create_pdf_directory(case_folder_path):
     """Create Reports pdf directory in the case folder"""

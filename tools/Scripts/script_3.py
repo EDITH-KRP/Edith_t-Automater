@@ -63,9 +63,9 @@ def setup_results_structure(case_id=None):
     for tool_name, dir_path in subdirs.items():
         os.makedirs(dir_path, exist_ok=True)
         if use_existing:
-            print(f" Using existing: {os.path.relpath(dir_path)}")
+            print(f" Using existing: {dir_path}")
         else:
-            print(f" Created: {os.path.relpath(dir_path)}")
+            print(f" Created: {dir_path}")
 
     return case_results_dir, subdirs
 
@@ -222,10 +222,31 @@ def run_workflow(evidence_path, memory_file=None):
         else:
             print(f"    [INFO] Small evidence file detected. Using full processing mode.")
 
-        # Path to our Python implementation
+        # Path to our Python implementation - USB compatible
         script_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(os.path.dirname(script_dir))
-        bulk_extractor_script = os.path.join(project_root, "tools", "bulk-extractor", "run_bulk_extractor.py")
+        
+        # For USB deployment, check if we're running from USB structure
+        if "EDITH-USB-Portable" in script_dir:
+            # We're running from USB, adjust paths accordingly
+            usb_root = script_dir.split("EDITH-USB-Portable")[0] + "EDITH-USB-Portable"
+            bulk_extractor_script = os.path.join(usb_root, "tools", "bulk-extractor", "run_bulk_extractor.py")
+            project_root = usb_root
+        else:
+            # Running from source directory
+            bulk_extractor_script = os.path.join(project_root, "tools", "bulk-extractor", "run_bulk_extractor.py")
+        
+        print(f"    [DEBUG] Script dir: {script_dir}")
+        print(f"    [DEBUG] Project root: {project_root}")
+        print(f"    [DEBUG] Bulk extractor script: {bulk_extractor_script}")
+        
+        # Verify the script exists
+        if not os.path.exists(bulk_extractor_script):
+            print(f"    [ERROR] Bulk extractor script not found at: {bulk_extractor_script}")
+            print("    [ERROR] Bulk-Extractor analysis failed!")
+            return
+        else:
+            print(f"    [OK] Found bulk extractor script at: {bulk_extractor_script}")
         
         # Check if local bulk_extractor binary exists, otherwise use Python fallback
         bulk_extractor_binary = os.path.join(project_root, "tools", "bulk-extractor", "bulk_extractor")
@@ -251,12 +272,28 @@ def run_workflow(evidence_path, memory_file=None):
         if use_python_fallback:
             print(f"    [INFO] Starting Python bulk_extractor...")
             
-            # Get the Python executable
-            venv_python = os.path.join(project_root, ".venv", "Scripts", "python.exe")
-            if os.path.exists(venv_python):
-                python_executable = venv_python
+            # Get the Python executable - USB compatible
+            if "EDITH-USB-Portable" in script_dir:
+                # We're running from USB, use USB bundled Python
+                usb_root = script_dir.split("EDITH-USB-Portable")[0] + "EDITH-USB-Portable"
+                python_executable = os.path.join(usb_root, "python-portable", "python.exe")
+                print(f"    [INFO] Using USB bundled Python: {python_executable}")
             else:
-                python_executable = sys.executable
+                # Running from source, try venv first
+                venv_python = os.path.join(project_root, ".venv", "Scripts", "python.exe")
+                if os.path.exists(venv_python):
+                    python_executable = venv_python
+                else:
+                    python_executable = sys.executable
+                print(f"    [INFO] Using system Python: {python_executable}")
+            
+            # Verify Python executable exists
+            if not os.path.exists(python_executable):
+                print(f"    [ERROR] Python executable not found at: {python_executable}")
+                print("    [ERROR] Bulk-Extractor analysis failed!")
+                return
+            else:
+                print(f"    [OK] Python executable found: {python_executable}")
             
             # Run our Python implementation with proper error handling and real-time output
             env = os.environ.copy()

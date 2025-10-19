@@ -8,7 +8,7 @@ import datetime
 def run_cmd(cmd):
     """Run a shell command and return stdout"""
     try:
-        result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+        result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)  # 1 minute timeout
         if result.returncode != 0:
             print(f"[!] Error running: {cmd}\n{result.stderr}")
             return None
