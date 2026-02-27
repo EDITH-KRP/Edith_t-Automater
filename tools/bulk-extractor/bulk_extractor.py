@@ -15,7 +15,40 @@ from pathlib import Path
 
 class BulkExtractorAlternative:
     """Python implementation of basic bulk_extractor functionality"""
-    
+
+    # --- C-5 FIX: Validation helpers ---
+    @staticmethod
+    def _luhn_check(number: str) -> bool:
+        """Return True if the digit string passes the Luhn checksum."""
+        digits = [int(d) for d in number if d.isdigit()]
+        if len(digits) != 16:
+            return False
+        total = 0
+        for i, d in enumerate(reversed(digits)):
+            if i % 2 == 1:
+                d *= 2
+                if d > 9:
+                    d -= 9
+            total += d
+        return total % 10 == 0
+
+    @staticmethod
+    def _valid_ip(ip: str) -> bool:
+        """Return True only if every octet is in the range 0-255."""
+        parts = ip.split(".")
+        if len(parts) != 4:
+            return False
+        try:
+            return all(0 <= int(p) <= 255 for p in parts)
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _valid_ssn(ssn: str) -> bool:
+        """Return True only if SSN area number is not 000, 666, or 900-999."""
+        area = int(ssn.split("-")[0])
+        return area not in (0, 666) and not (900 <= area <= 999)
+
     def __init__(self):
         self.patterns = {
             'email': re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'),
@@ -43,12 +76,12 @@ class BulkExtractorAlternative:
         if chunk.startswith(b'\xff\xfe'):
             try:
                 chunk_str = chunk.decode('utf-16le', errors='ignore')
-            except:
+            except Exception:
                 chunk_str = chunk.decode('utf-8', errors='ignore')
         elif chunk.startswith(b'\xfe\xff'):
             try:
                 chunk_str = chunk.decode('utf-16be', errors='ignore')
-            except:
+            except Exception:
                 chunk_str = chunk.decode('utf-8', errors='ignore')
         else:
             # Default to UTF-8
@@ -62,12 +95,22 @@ class BulkExtractorAlternative:
             
             if matches:  # Only process if we found matches
                 for match in matches:
-                    # Simplified data structure for speed
+                    data = match.group()
+                    # C-5 FIX: validate before recording to avoid false positives
+                    if pattern_name == 'credit_card':
+                        digits_only = re.sub(r'[-\s]', '', data)
+                        if not self._luhn_check(digits_only):
+                            continue
+                    elif pattern_name == 'ip':
+                        if not self._valid_ip(data):
+                            continue
+                    elif pattern_name == 'ssn':
+                        if not self._valid_ssn(data):
+                            continue
                     self.results[pattern_name].append({
                         'offset': chunk_offset + match.start(),
-                        'length': len(match.group()),
-                        'data': match.group()
-                        # Removed context to speed up processing
+                        'length': len(data),
+                        'data': data
                     })
                     self.stats['patterns_found'] += 1
 
@@ -123,7 +166,7 @@ class BulkExtractorAlternative:
         summary_file = os.path.join(output_dir, "report.xml")
         with open(summary_file, 'w', encoding='utf-8') as f:
             f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
-            f.write('<dfxml version="1.0">\n')
+            f.write('<dfxml version="1.0" xmlns:dc="http://purl.org/dc/elements/1.1/">\n')
             f.write('  <metadata>\n')
             f.write(f'    <dc:type>Feature Extraction Report</dc:type>\n')
             f.write(f'    <dc:date>{datetime.now().isoformat()}</dc:date>\n')

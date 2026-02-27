@@ -309,8 +309,8 @@ def main():
     if hash_calc.lower() == "yes":
         ask_choice(
             "Which algorithm was used for hash calculation?",
-            ["MD5", "SHA1", "Others"],
-            "Algorithm Used (MD5/SHA1/Others)"
+            ["SHA-256", "SHA-512", "MD5", "SHA1", "Others"],
+            "Algorithm Used"
         )
 
     # Storage Details
@@ -318,19 +318,27 @@ def main():
     print("FORENSIC IMAGE FILE")
     print("="*50)
     
-    # Ask for FTK image file
+    # Check if evidence path was pre-supplied by the orchestrator
+    _env_evidence = os.environ.get('EDITH_EVIDENCE_PATH', '').strip()
     image_path = ""
-    while True:
-        image_path = input("Path to FTK Imager image file (.E01, .dd, .img, etc.) [optional, press Enter to skip]: ").strip()
-        if not image_path:
-            print("Skipping FTK image file (optional)")
-            break
-        elif os.path.exists(image_path):
-            answers["Image File Path"] = image_path
-            print(f"✓ Image file confirmed: {image_path}")
-            break
-        else:
-            print(f"✗ File not found. Please check the path and try again or press Enter to skip.")
+    if _env_evidence and os.path.exists(_env_evidence):
+        image_path = _env_evidence
+        answers["Image File Path"] = image_path
+        print(f"[INFO] Evidence file pre-supplied: {image_path}")
+        print(f"✓ Image file confirmed: {image_path}")
+    else:
+        # Ask interactively
+        while True:
+            image_path = input("Path to FTK Imager image file (.E01, .dd, .img, etc.) [optional, press Enter to skip]: ").strip()
+            if not image_path:
+                print("Skipping FTK image file (optional)")
+                break
+            elif os.path.exists(image_path):
+                answers["Image File Path"] = image_path
+                print(f"✓ Image file confirmed: {image_path}")
+                break
+            else:
+                print(f"✗ File not found. Please check the path and try again or press Enter to skip.")
     
     # Storage Details
     print("\n" + "="*50)

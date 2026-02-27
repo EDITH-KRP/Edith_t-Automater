@@ -230,8 +230,19 @@ class VolatilityAnalyzer:
     def run_analysis(self, quick_mode=False, specific_file=None):
         """Main analysis function"""
         if not self.vol_path.exists():
-            print(f"[-] Volatility3 not found at {self.vol_path}")
-            print("    Please ensure Volatility3 is installed in the volatility3 folder")
+            msg = (
+                f"Volatility3 not found at {self.vol_path}\n"
+                "Please ensure Volatility3 is installed in the volatility3 folder.\n"
+                "Install: git clone https://github.com/volatilityfoundation/volatility3.git\n"
+            )
+            print(f"[-] {msg}")
+            # Write a status file so the output directory is not silently empty
+            status_file = self.results_dir / "volatility_status.txt"
+            status_file.write_text(
+                f"[VOLATILITY STATUS - {datetime.now().isoformat()}]\n"
+                f"Status: SKIPPED - Volatility3 not installed\n"
+                f"{msg}"
+            )
             return None
         
         # Find memory files
@@ -240,13 +251,30 @@ class VolatilityAnalyzer:
                 memory_files = [specific_file]
             else:
                 print(f"[-] Specified memory file not found: {specific_file}")
+                status_file = self.results_dir / "volatility_status.txt"
+                status_file.write_text(
+                    f"[VOLATILITY STATUS - {datetime.now().isoformat()}]\n"
+                    f"Status: SKIPPED - Specified memory file not found: {specific_file}\n"
+                    "Provide a valid .mem / .dmp / .raw / .vmem memory dump file.\n"
+                )
                 return None
         else:
             memory_files = self.find_memory_files()
         
         if not memory_files:
-            print(f"[-] No memory dump files found in {self.mem_dir}")
-            print("    Supported formats: .mem, .dmp, .raw, .vmem, .dd, .bin, .sav")
+            msg = (
+                f"No memory dump files found in {self.mem_dir}\n"
+                "Supported formats: .mem, .dmp, .raw, .vmem, .dd, .bin, .sav\n"
+                "Copy or symlink the memory dump into the mem/ directory (or pass --file).\n"
+            )
+            print(f"[-] {msg}")
+            # Write a clear status report so the directory is not silently empty
+            status_file = self.results_dir / "volatility_status.txt"
+            status_file.write_text(
+                f"[VOLATILITY STATUS - {datetime.now().isoformat()}]\n"
+                f"Status: SKIPPED - No memory dump files present\n"
+                f"{msg}"
+            )
             return None
         
         print(f"[+] Found {len(memory_files)} memory file(s):")

@@ -1,0 +1,524 @@
+# EDITH-Automater — Comprehensive Code Audit Report
+
+> **Audit Date:** 2026-02-27
+> **Scope:** Full codebase — all Python scripts, config, templates, and dependencies
+> **Focus:** Bugs, illogical functions, dummy code, incorrect pipelines, wrong algorithms, security, and real-world readiness
+
+---
+
+## Summary Dashboard
+
+| Severity | Count | Category |
+|----------|-------|----------|
+| 🔴 Critical | 8 | Security, data integrity, broken functionality |
+| 🟠 Major | 12 | Wrong algorithms, missing integrations, design flaws |
+| 🟡 Moderate | 11 | Code quality, reliability, UX issues |
+| 🔵 Minor | 11 | Polish, best practices, dead code |
+| **Total** | **42** | |
+
+---
+
+## 🔴 Critical Issues (8)
+
+---
+
+### C-1. Hash Verification is FAKE — Evidence Integrity Never Actually Verified
+
+**File:** [script_3.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_3.py#L104-L364)
+
+The entire point of running HashDeep twice (Step 1 baseline + Step 6 verification) is to **prove evidence wasn't modified**. But [script_3.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_3.py) simply calls `hashdeep.main()` twice — the return values are **never compared**. No code anywhere checks if the baseline hash matches the verification hash.
+
+```python
+# Step 1: Creates hash
+hash_results = hashdeep.main(evidence_path, output_path=subdirs['hashdeep'])
+
+# Step 6: Creates hash AGAIN but NEVER compares to Step 1!
+verify_results = hashdeep.main(evidence_path, output_path=verification_dir)
+```
+
+> [!CAUTION]
+> This is the **#1 most critical bug** in the project. A forensic tool that doesn't verify evidence integrity is forensically worthless. In court, this would be grounds for **evidence dismissal**. The [verify_drive_integrity()](file:///c:/hackathon/Edith_t-Automater/tools/hashdeep/create_hashdeep_drive.py#251-313) method exists in [create_hashdeep_drive.py](file:///c:/hackathon/Edith_t-Automater/tools/hashdeep/create_hashdeep_drive.py) but is **never called** by the workflow.
+
+---
+
+### C-2. [script_2.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_2.py) is EMPTY — Main Menu Option 2 Crashes
+
+**File:** [script_2.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_2.py)
+
+[script_1.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_1.py) (main menu) imports `script_2` and calls `script_2.main()`, but [script_2.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_2.py) is **0 bytes**. Selecting Option 2 ("Digital Evidence Collection — Image Creation") crashes with `AttributeError: module 'script_2' has no attribute 'main'`.
+
+```python
+# script_1.py line 27 — guaranteed crash
+elif choice == "2":
+    script_2.main()  # script_2.py is EMPTY
+```
+
+---
+
+### C-3. [autopsy/auto.py](file:///c:/hackathon/Edith_t-Automater/tools/autopsy/auto.py) Reads Entire Evidence File Into Memory for Hashing
+
+**File:** [auto.py](file:///c:/hackathon/Edith_t-Automater/tools/autopsy/auto.py#L42-L49)
+
+The [compute_hashes()](file:///c:/hackathon/Edith_t-Automater/tools/autopsy/auto.py#42-50) function calls `f.read()` on the entire evidence file, loading it **completely into RAM**. For a typical 50 GB disk image, this will crash with `MemoryError`.
+
+```python
+def compute_hashes(file_path):
+    with open(file_path, "rb") as f:
+        data = f.read()  # 50 GB into RAM = CRASH
+        hashes["md5"] = hashlib.md5(data).hexdigest()
+        hashes["sha256"] = hashlib.sha256(data).hexdigest()
+```
+
+> [!CAUTION]
+> [hashdeep/create_hashdeep_drive.py](file:///c:/hackathon/Edith_t-Automater/tools/hashdeep/create_hashdeep_drive.py) correctly uses chunked reading (1 MB at a time). The autopsy module does not. Any evidence file over ~2 GB will crash.
+
+---
+
+### C-4. Unbound Variables Crash in Error Paths ([orchestrator.py](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py))
+
+**File:** [orchestrator.py](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#L174-L235)
+
+In [run_evidence_collection_interactive](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#174-236), if an exception occurs before [case_id](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#80-83) and [case_dir](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#84-108) are assigned (e.g., `subprocess.TimeoutExpired` or a general exception), the return dict at line 230 references [case_id](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#80-83) and [case_dir](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#84-108) which were **never assigned**. This causes a secondary `UnboundLocalError`.
+
+```python
+# case_id and case_dir are only assigned in the try block (L205-206)
+# But the except blocks (L220-228) set status/message then fall through to:
+return {
+    "case_id": case_id,     # ← UnboundLocalError!
+    "case_dir": case_dir,   # ← UnboundLocalError!
+}
+```
+
+---
+
+### C-5. Credit Card & SSN Regex Patterns Produce Massive False Positives
+
+**File:** [bulk_extractor.py](file:///c:/hackathon/Edith_t-Automater/tools/bulk-extractor/bulk_extractor.py#L20-L28)
+
+- **Credit cards:** `\b[0-9]{4}[-\s]?[0-9]{4}[-\s]?[0-9]{4}[-\s]?[0-9]{4}\b` matches **any** 16-digit number (timestamps, file sizes, hex values, etc.) with **no Luhn checksum validation**
+- **SSN:** `\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b` doesn't filter invalid ranges (000, 666, 900-999 area numbers)
+- **IP addresses:** `\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b` matches invalid IPs like `999.999.999.999`
+
+This will flood reports with thousands of false positives, making real findings hard to find.
+
+---
+
+### C-6. Sensitive Data Written in Plaintext with No Encryption or Access Control
+
+**Files:** All output files across all modules
+
+Evidence collection forms, extracted emails, credit card numbers, SSNs, and all case data are written as **plain text/HTML/JSON files with no encryption**. For forensic practice:
+- Case data must be encrypted at rest
+- Access must be logged and restricted
+- Files should have proper OS-level permissions (`chmod 600` or Windows ACLs)
+
+---
+
+### C-7. Race Condition in Simultaneous Workflow Mode
+
+**File:** [orchestrator.py](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#L787-L896)
+
+[run_simultaneous_workflow](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#787-897) runs evidence collection and forensic analysis **in parallel** on the **same case directory**. Both `subprocess.run` calls share the same [case_dir](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#84-108). There is:
+- No file locking
+- No synchronization  
+- No write-order guarantee
+- `os.chdir()` calls that are **not thread-safe** (affects entire process)
+
+---
+
+### C-8. `os.chdir()` is Not Thread/Async-Safe — Corrupts Parallel Execution
+
+**Files:** [orchestrator.py](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#L184-L218) (5 methods use `os.chdir`)
+
+Multiple methods call `os.chdir()` inside `try/finally` blocks. Since `os.chdir()` changes the working directory for the **entire process**, the simultaneous mode (`asyncio.gather`) is dangerous — if two coroutines `chdir` at the same time, they destroy each other's paths.
+
+---
+
+## 🟠 Major Issues (12)
+
+---
+
+### M-1. [config.json](file:///c:/hackathon/Edith_t-Automater/config.json) is Never Loaded — All Settings Are Hardcoded
+
+**Files:** [config.json](file:///c:/hackathon/Edith_t-Automater/config.json), [orchestrator.py](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py)
+
+Despite having a detailed 92-line configuration file with tool paths, timeouts, logging levels, and reporting options — **no code anywhere loads or reads it**. All tool paths and timeouts are hardcoded directly in Python source files.
+
+---
+
+### M-2. Bulk Extractor Python Fallback Is Severely Weak
+
+**File:** [bulk_extractor.py](file:///c:/hackathon/Edith_t-Automater/tools/bulk-extractor/bulk_extractor.py)
+
+The Python "alternative" only runs basic regex on raw bytes decoded as UTF-8. The real [bulk_extractor](file:///c:/hackathon/Edith_t-Automater/tools/bulk-extractor/run_bulk_extractor.py#8-65):
+- Decompresses archives within disk images
+- Parses filesystem structures (NTFS, FAT, EXT)
+- Runs **hundreds of scanners** (GPS, Windows Event Logs, etc.)
+- Uses multi-threaded sector scanning
+
+The Python version misses **95%+** of extractable artifacts and gives a false sense of completeness.
+
+---
+
+### M-3. Memory Leak in Bulk Extractor — All Matches Kept in RAM
+
+**File:** [bulk_extractor.py](file:///c:/hackathon/Edith_t-Automater/tools/bulk-extractor/bulk_extractor.py#L37-L72)
+
+All regex matches are appended to `self.results` dict and kept in memory for the **entire file**. For a 50 GB disk image, this could accumulate millions of matches, consuming all available RAM. Matches should be streamed to disk.
+
+---
+
+### M-4. Default Hash Algorithm is SHA-1 — Cryptographically Broken
+
+**Files:** [q_script.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/q_script.py#L309-L314), [orchestrator.py](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#L273)
+
+The evidence collection form defaults `Algorithm Used` to SHA-1, and the choices are only "MD5", "SHA1", or "Others". SHA-1 has been **cryptographically broken since 2017** (SHAttered attack). NIST recommends SHA-256 minimum. SHA-256 should be the default option.
+
+---
+
+### M-5. No Evidence File Validation Before Processing
+
+**Files:** [script_3.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_3.py#L85), [orchestrator.py](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#L312)
+
+The workflow accepts any file path and starts all tools. There is:
+- No check if the evidence file **actually exists** before starting forensic analysis
+- No validation of file type (`.E01`, [.dd](file:///c:/hackathon/Edith_t-Automater/test_evidence.dd), `.raw`)
+- No file size sanity check
+- No read permission check
+
+A non-existent path silently fails through each tool, wasting time and producing empty results.
+
+---
+
+### M-6. No Write-Blocker Integration or Read-Only Verification
+
+In forensic practice, evidence must **never be written to**. The tool has no:
+- Hardware write-blocker detection/verification
+- Software read-only mount verification
+- Warning when directly accessing a raw device
+- File integrity check before/after tool access
+
+---
+
+### M-7. [run_bulk_extractor_with_custom_output](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_3.py#77-83) is a Dummy Function
+
+**File:** [script_3.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_3.py#L77-L82)
+
+This function exists but **does nothing real**:
+
+```python
+def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
+    print(f"[INFO] Using Python-based bulk extractor for: {evidence_path}")
+    return True  # Always returns True without doing ANYTHING
+```
+
+It's never called, and its existence is confusing.
+
+---
+
+### M-8. Report Generation Uses Brittle `str.replace()` Instead of Template Engine
+
+**File:** [report_gen.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/report_gen.py#L410-L697)
+
+The report generator fills HTML templates using 100+ calls to `str.replace()` on exact HTML tag matches. This is extremely brittle:
+- Any minor change to the HTML template breaks all replacements **silently**
+- If a field label appears twice, only the first is replaced
+- No template engine (Jinja2) is used despite it being in [requirements.txt](file:///c:/hackathon/Edith_t-Automater/tools/requirements.txt)
+
+---
+
+### M-9. No Input Sanitization in Evidence Collection Forms
+
+**File:** [q_script.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/q_script.py)
+
+User answers are written directly to text and HTML files with **no sanitization**. If answers contain HTML tags or JavaScript, the generated reports will be:
+- Malformed HTML
+- Vulnerable to **XSS** if opened in a browser
+
+---
+
+### M-10. Windows `InternetExplorer.Application` COM is Deprecated and Removed
+
+**File:** [report_gen.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/report_gen.py#L133-L196)
+
+The [convert_html_to_pdf_windows_builtin](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/report_gen.py#133-197) function uses `InternetExplorer.Application` COM object, which is **removed from Windows 11 23H2+**. The code will throw a COM error on modern Windows.
+
+---
+
+### M-11. No Unit Tests or Integration Tests Exist
+
+There is no `tests/` directory, no test files, and no CI/CD configuration. Testing packages (`pytest`, `coverage`, `pytest-cov`) are in [requirements.txt](file:///c:/hackathon/Edith_t-Automater/tools/requirements.txt) but never used. For forensic software where correctness is **legally critical**, this is unacceptable.
+
+---
+
+### M-12. [exiftool_auto.py](file:///c:/hackathon/Edith_t-Automater/tools/exiftool/exiftool_auto.py) Integrity Report Reads Entire File into Memory for Hashing
+
+**File:** [exiftool_auto.py](file:///c:/hackathon/Edith_t-Automater/tools/exiftool/exiftool_auto.py#L465-L477)
+
+Same issue as autopsy — `file_data.read()` loads the entire file into RAM before hashing:
+
+```python
+with open(file_path, 'rb') as file_data:
+    data = file_data.read()  # Entire file into RAM
+    f.write(f"MD5: {hashlib.md5(data).hexdigest()}\n")
+```
+
+---
+
+## 🟡 Moderate Issues (11)
+
+---
+
+### Mod-1. Bloated [requirements.txt](file:///c:/hackathon/Edith_t-Automater/tools/requirements.txt) — Most Packages Are Unused
+
+**File:** [requirements.txt](file:///c:/hackathon/Edith_t-Automater/tools/requirements.txt)
+
+Lists **188 lines** of dependencies including `opencv-python`, `numba`, `cython`, `selenium`, `scapy`, `plotly`, etc. The actual code only uses: [subprocess](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#54-68), [os](file:///c:/hackathon/Edith_t-Automater/tools/volatility/auto_vol.py#96-123), [re](file:///c:/hackathon/Edith_t-Automater/.gitignore), `glob`, [json](file:///c:/hackathon/Edith_t-Automater/config.json), `datetime`, [playwright](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/report_gen.py#57-132)/[weasyprint](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/report_gen.py#32-56) (optional). This causes:
+- Install failures due to C compiler requirements (`numba`, `cython`)
+- Version conflict risks (`pycrypto` + `pycryptodome` listed together)
+
+> [!WARNING]
+> `pycrypto>=2.6.1` is listed but **pycrypto is unmaintained and has known CVEs**. It conflicts with `pycryptodome` on the same list.
+
+---
+
+### Mod-2. f-string Escaping Bug in Windows PDF Fallback
+
+**File:** [report_gen.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/report_gen.py#L160-L195)
+
+Uses `{{os.path.basename(...)}}` and `{{datetime.now()...}}` inside f-strings within a PowerShell script block. The double braces **escape the f-string**, so it renders the literal text `{os.path.basename(...)}` instead of the actual value.
+
+```python
+# Line 162 — Bug!
+print(f"[OK] PDF generated: {{os.path.basename(pdf_file_path)}}")
+# Prints LITERALLY: "[OK] PDF generated: {os.path.basename(pdf_file_path)}"
+```
+
+---
+
+### Mod-3. [find_latest_case](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#116-130) Uses `st_ctime` — Unreliable on Linux
+
+**File:** [orchestrator.py](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#L125)
+
+`st_ctime` is **not** creation time on Linux (it's inode change time). The case ID already contains a timestamp — parsing the name would be more reliable and cross-platform.
+
+---
+
+### Mod-4. Hardcoded Timeouts Are Too Short for Real-World Evidence
+
+| Operation | Timeout | Real-World Need |
+|-----------|---------|-----------------|
+| Evidence collection | 30 min (1800s) | Often needs 2+ hr for large images |
+| Forensic analysis | 1 hr (3600s) | 500 GB image through Autopsy takes **days** |
+| Volatility plugins | 5 min (300s) | `malfind` on large memory can take hours |
+| Report generation | 10 min (600s) | Usually fine |
+
+---
+
+### Mod-5. No Graceful Recovery from Partial Failures
+
+If Autopsy fails partway through, the workflow continues to ExifTool, Bulk Extractor, etc. But there's no:
+- Summary of which tools succeeded vs. failed
+- Option to retry failed tools
+- Persistent state tracking which steps completed
+
+---
+
+### Mod-6. Windows-Only Despite Cross-Platform Claims
+
+The README mentions Linux/macOS support, but:
+- [launcher.ps1](file:///c:/hackathon/Edith_t-Automater/orchestrator/launcher.ps1) is PowerShell/Windows only
+- `where` command (Windows) is used instead of `shutil.which()` 
+- USB detection is hardcoded to drive letters
+- [create_usb_portable.py](file:///c:/hackathon/Edith_t-Automater/create_usb_portable.py) creates `.exe` launchers
+- `venv_python` hardcoded to `Scripts/python.exe` (not `bin/python` for Linux)
+
+---
+
+### Mod-7. Case ID Collision Under Rapid Sequential Use
+
+**File:** [orchestrator.py](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#L82)
+
+Case IDs use `datetime.now().strftime('%Y%m%d_%H%M%S')` — only **1-second resolution**. If two cases are created within the same second (scripted use, tests), they collide. UUID or millisecond precision would be safer.
+
+---
+
+### Mod-8. Logging Writes to CWD — Location Unpredictable
+
+**File:** [orchestrator.py](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#L75)
+
+`logging.FileHandler('orchestrator.log')` writes to the **current working directory**, which changes via `os.chdir()`. The log file ends up in unpredictable locations. Should use absolute path.
+
+---
+
+### Mod-9. [autopsy/auto.py](file:///c:/hackathon/Edith_t-Automater/tools/autopsy/auto.py) Uses `shell=True` — Command Injection Risk
+
+**File:** [auto.py](file:///c:/hackathon/Edith_t-Automater/tools/autopsy/auto.py#L11)
+
+`subprocess.run(cmd, shell=True, ...)` with string-based commands is vulnerable to **command injection** if the image path contains shell metacharacters. Should use list-based commands without `shell=True`.
+
+---
+
+### Mod-10. [report_gen.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/report_gen.py) Relies on Relative Paths — Fragile
+
+**File:** [report_gen.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/report_gen.py#L267-L300)
+
+The [read_questions_file()](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/report_gen.py#264-301) uses hardcoded relative paths like `os.path.join('..', '..', 'Results', ...)`. This only works if `cwd` is exactly `tools/Scripts/`. If run from any other directory, it fails silently.
+
+---
+
+### Mod-11. `autopsy/auto.py` Returns `None` on First Failure Path
+
+**File:** [auto.py](file:///c:/hackathon/Edith_t-Automater/tools/autopsy/auto.py#L56-L61)
+
+`get_partition_offset` calls `output.splitlines()` directly without checking if `output` is `None`. If `run_cmd` returns `None` (timeout or error), this crashes with `AttributeError: 'NoneType' object has no attribute 'splitlines'`.
+
+---
+
+## 🔵 Minor Issues (11)
+
+---
+
+### Min-1. Duplicate Import of `subprocess` and `sys`
+
+**File:** [script_3.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_3.py#L368-L385) — Re-imports `sys` and `subprocess` (as `sp`) inside a function scope.
+
+---
+
+### Min-2. Debug Print Statements Left in Production Code
+
+**File:** [script_3.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_3.py#L243-L245) — Prints `[DEBUG]` messages with internal filesystem paths.
+
+---
+
+### Min-3. `import re` Inside Loop in `q_script.py`
+
+**File:** [q_script.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/q_script.py#L146) — `import re` inside `ask_hours()` function, called repeatedly. Should be at module level.
+
+---
+
+### Min-4. `import shutil` Inside Cleanup Loop
+
+**File:** [script_3.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/script_3.py#L425) — `import shutil` inside a for loop iteration. Should be at module level.
+
+---
+
+### Min-5. Hard Disk Capacity Options Arbitrarily Limited
+
+**File:** [q_script.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/q_script.py#L351) — Choices are only "1 TB", "2 TB", "4 TB". Real-world drives range from 128 GB to 20 TB+. Add free-text input.
+
+---
+
+### Min-6. `sys.path` Modified 3 Times Redundantly
+
+**File:** [orchestrator.py](file:///c:/hackathon/Edith_t-Automater/orchestrator/orchestrator.py#L17-L22) — `sys.path.insert(0, ...)` and `sys.path.append(...)` called for the same paths.
+
+---
+
+### Min-7. `convert_html_to_pdf_playwright` Sets Identical Margins Regardless of Branch
+
+**File:** [report_gen.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/report_gen.py#L105-L120) — Both the `if is_job_form` and `else` branches set margins to `{'top': '0mm', 'right': '0mm', 'bottom': '0mm', 'left': '0mm'}`. The conditional is pointless.
+
+---
+
+### Min-8. Bare `except:` Clauses in Multiple Files
+
+**Files:** [bulk_extractor.py](file:///c:/hackathon/Edith_t-Automater/tools/bulk-extractor/bulk_extractor.py#L46-L47), [exiftool_auto.py](file:///c:/hackathon/Edith_t-Automater/tools/exiftool/exiftool_auto.py#L118), [report_gen.py](file:///c:/hackathon/Edith_t-Automater/tools/Scripts/report_gen.py#L191)
+
+Multiple files use bare `except:` without specifying exception types. This swallows `KeyboardInterrupt`, `SystemExit`, and other signals.
+
+---
+
+### Min-9. Inconsistent Return Types Across Functions
+
+| Function | Returns on success | Returns on failure |
+|----------|-------------------|-------------------|
+| `auto.main()` | `True` | `None` |
+| `hashdeep.main()` | `dict` | `dict` |
+| `exiftool_auto.process_all_evidence()` | `dict` | `dict` |
+| `run_bulk_extractor()` | `None` | `None` |
+
+Callers have no reliable way to determine success.
+
+---
+
+### Min-10. `autopsy/auto.py` NoneType Crash in `get_partition_offset`
+
+**File:** [auto.py](file:///c:/hackathon/Edith_t-Automater/tools/autopsy/auto.py#L54-L61)
+
+If `run_cmd` returns `None`, the next line `output.splitlines()` crashes. Should add `if output is None: return None, None`.
+
+---
+
+### Min-11. No `.gitignore` for Build Artifacts and Temp Files
+
+The `.gitignore` exists but doesn't cover common forensic tool output directories (`Results/`, `*.log`, `__pycache__/`, `.venv/`, etc.).
+
+---
+
+## Pipeline Issues Summary
+
+```mermaid
+flowchart TB
+    A[User Starts Workflow] --> B{Evidence Path Valid?}
+    B -->|Never checked!| C[HashDeep Baseline]
+    C --> D[Autopsy Analysis]
+    D -->|Reads entire file into RAM| D2[Memory Crash on large files]
+    D --> E[Volatility Memory Analysis]
+    E --> F[ExifTool Metadata]
+    F --> G[Bulk Extractor]
+    G -->|Regex-only fallback| G2[95% artifacts missed]
+    G --> H[HashDeep Verification]
+    H -->|Hashes NEVER compared!| H2[Integrity not verified]
+    H --> I[Report Generation]
+    I -->|str.replace on HTML| I2[Brittle, silent failures]
+    
+    style B fill:#ff6666
+    style D2 fill:#ff6666
+    style G2 fill:#ff9900
+    style H2 fill:#ff6666
+    style I2 fill:#ff9900
+```
+
+---
+
+## Missing Features for Real-World Forensics
+
+| Feature | Status | Priority |
+|---------|--------|----------|
+| **Hash comparison** (baseline vs. verification) | ❌ Not implemented | 🔴 Critical |
+| Write-blocker detection | ❌ Missing | 🔴 High |
+| Evidence encryption at rest | ❌ Missing | 🔴 High |
+| Audit log (who accessed what, when) | ❌ Missing | 🟠 High |
+| Unit/integration tests | ❌ Missing | 🟠 High |
+| Config file integration | ❌ Missing | 🟠 Medium |
+| E01 segment file support (`.E02`, `.E03`…) | ❌ Missing | 🟠 Medium |
+| Linux/macOS actual support | ❌ Missing | 🟡 Medium |
+| Error recovery/resume | ❌ Missing | 🟡 Medium |
+| Network/PCAP analysis | ❌ Missing | 🟡 Medium |
+| Multi-user/role-based access | ❌ Missing | 🟡 Low |
+
+---
+
+## Recommended Fix Priority
+
+### 🚨 Fix Immediately (Before Demo/Submission)
+1. **C-1:** Implement actual hash comparison between baseline and verification
+2. **C-2:** Implement `script_2.py` or remove Option 2 from menu
+3. **C-3:** Fix `auto.py` `compute_hashes()` to use chunked reading
+4. **C-4:** Initialize `case_id = None` and `case_dir = None` at function start
+5. **C-5:** Add Luhn validation for credit cards, IP range validation
+
+### ⚡ Fix Soon (Production Readiness)
+6. **M-1:** Load `config.json` and use its values
+7. **M-4:** Change default hash to SHA-256
+8. **M-5:** Validate evidence file exists before starting analysis
+9. **M-8:** Switch report_gen to Jinja2 templating
+10. **M-11:** Add at least basic unit tests
+11. **M-3:** Stream bulk extractor results to disk instead of RAM
+
+### 🔧 Fix Later (Polish)
+12. Clean up duplicate imports, debug prints, bare excepts
+13. Replace `os.chdir()` with `cwd` parameter in subprocess calls
+14. Trim `requirements.txt` to only actually-used packages
+15. Add proper logging to case directory, not CWD

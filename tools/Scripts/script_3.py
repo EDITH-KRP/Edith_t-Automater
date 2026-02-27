@@ -1,13 +1,18 @@
 import os
 import sys
+import shutil
 import subprocess
 from datetime import datetime
 
 # Configure UTF-8 encoding for Windows
 if sys.platform.startswith('win'):
-    import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
+    try:
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        if hasattr(sys.stderr, 'reconfigure'):
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass  # stdout may be captured (no reconfigure available), skip
 
 # Add parent directory so imports work
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -70,20 +75,32 @@ def setup_results_structure(case_id=None):
     return case_results_dir, subdirs
 
 
-def run_bulk_extractor_with_custom_output(evidence_path, output_dir):
-    """
-    Simple wrapper that delegates to our Python implementation
-    """
-    print(f"[INFO] Using Python-based bulk extractor for: {evidence_path}")
-    return True
-
-
 def run_workflow(evidence_path, memory_file=None):
     print("=" * 80)
     print("EDITH-Automater Unified Forensic Workflow (Minimal Prompts)")
     print("HashDeep -> Autopsy -> Volatility -> ExifTool -> BulkExtractor -> HashDeep")
     print("=" * 80)
-
+    # M-5 FIX: Validate evidence file before starting any tool
+    if not os.path.exists(evidence_path):
+        print(f"[ERROR] Evidence file not found: {evidence_path}")
+        print("[ERROR] Aborting workflow — please provide a valid evidence file path.")
+        return
+    if not os.path.isfile(evidence_path):
+        print(f"[ERROR] Evidence path is not a file: {evidence_path}")
+        return
+    if not os.access(evidence_path, os.R_OK):
+        print(f"[ERROR] No read permission for evidence file: {evidence_path}")
+        return
+    valid_exts = {".e01", ".ex01", ".l01", ".dd", ".raw", ".img", ".vmdk", ".vhd"}
+    ext = os.path.splitext(evidence_path.lower())[1]
+    if ext not in valid_exts:
+        print(f"[WARNING] Unrecognised evidence extension '{ext}'. Supported: {', '.join(sorted(valid_exts))}")
+        print("[WARNING] Continuing anyway — verify this is a valid forensic image.")
+    file_size = os.path.getsize(evidence_path)
+    if file_size == 0:
+        print(f"[ERROR] Evidence file is empty (0 bytes): {evidence_path}")
+        return
+    print(f"[OK] Evidence file validated: {os.path.basename(evidence_path)} ({file_size:,} bytes)")
     # Check if using existing case or generating new case ID
     use_existing = os.environ.get('EDITH_USE_EXISTING_CASE', 'false').lower() == 'true'
     existing_case_id = os.environ.get('EDITH_CASE_ID')
@@ -100,7 +117,6 @@ def run_workflow(evidence_path, memory_file=None):
     # 1. Run HashDeep (baseline hashing)
     print("\n=== Running HashDeep (Baseline Hashing) ===")
     hash_results = hashdeep.main(evidence_path, output_path=subdirs['hashdeep'])
-
     # 2. Run Autopsy analysis
     print("\n=== Running Autopsy Analysis ===")
     try:
@@ -151,6 +167,19 @@ def run_workflow(evidence_path, memory_file=None):
             print("    [INFO] Skipping memory analysis.")
     else:
         print("\n[*] No memory file provided. Skipping memory analysis.")
+        # Write a status file so the Volatility output directory is not silently empty
+        try:
+            vol_status_path = os.path.join(subdirs['volatility'], "volatility_status.txt")
+            os.makedirs(subdirs['volatility'], exist_ok=True)
+            with open(vol_status_path, "w", encoding="utf-8") as _vf:
+                _vf.write(
+                    f"[VOLATILITY STATUS - {datetime.now().isoformat()}]\n"
+                    "Status: SKIPPED - No memory dump file was provided for this case.\n"
+                    "To run memory analysis, supply a .mem / .dmp / .vmem / .raw memory dump\n"
+                    "and pass it as the second input when launching the orchestrator.\n"
+                )
+        except Exception as _ve:
+            print(f"    [WARN] Could not write volatility status file: {_ve}")
 
     # 4. Run ExifTool Analysis
     print("\n=== Running ExifTool Analysis ===")
@@ -184,18 +213,31 @@ def run_workflow(evidence_path, memory_file=None):
                 if exif_results and exif_results.get("error"):
                     print(f"    [WARNING] {exif_results.get('error')}")
         else:
-            print(f"[+] Processing non-forensic image: {os.path.basename(evidence_path)}")
-            # Fallback to the existing method for non-E01 files
+            print(f"[+] Processing evidence file directly: {os.path.basename(evidence_path)}")
+            # Process the evidence file directly (not just the evidence directory)
             exif_tool = exiftool_auto.AutomatedExifTool(
                 case_id=f"CASE_{case_id_timestamp}",
                 show_prompt=False,
                 custom_result_dir=subdirs['exiftool']
             )
-            exif_results = exif_tool.process_all_evidence()
-            if exif_results and exif_results.get("status") in ["SUCCESS", "NO_FILES"]:
-                print(f"[+] ExifTool analysis completed. Files processed: {exif_results.get('files_processed', 0)}")
+            # Use process_single_file to target the actual evidence file
+            if os.path.isfile(evidence_path):
+                exif_results = exif_tool.process_single_file(evidence_path)
+                if exif_results and exif_results.get("status") == "SUCCESS":
+                    print(f"[+] ExifTool analysis completed. Metadata entries: {exif_results.get('metadata_entries', 0)}")
+                else:
+                    # Fallback to directory scan if single-file fails
+                    exif_results = exif_tool.process_all_evidence()
+                    if exif_results and exif_results.get("status") in ["SUCCESS", "NO_FILES"]:
+                        print(f"[+] ExifTool analysis completed. Files processed: {exif_results.get('files_processed', 0)}")
+                    else:
+                        print("[-] ExifTool analysis completed with warnings")
             else:
-                print("[-] ExifTool analysis completed with warnings")
+                exif_results = exif_tool.process_all_evidence()
+                if exif_results and exif_results.get("status") in ["SUCCESS", "NO_FILES"]:
+                    print(f"[+] ExifTool analysis completed. Files processed: {exif_results.get('files_processed', 0)}")
+                else:
+                    print("[-] ExifTool analysis completed with warnings")
                 
     except Exception as e:
         print(f"[-] ExifTool analysis failed: {e}")
@@ -236,9 +278,7 @@ def run_workflow(evidence_path, memory_file=None):
             # Running from source directory
             bulk_extractor_script = os.path.join(project_root, "tools", "bulk-extractor", "run_bulk_extractor.py")
         
-        print(f"    [DEBUG] Script dir: {script_dir}")
-        print(f"    [DEBUG] Project root: {project_root}")
-        print(f"    [DEBUG] Bulk extractor script: {bulk_extractor_script}")
+
         
         # Verify the script exists
         if not os.path.exists(bulk_extractor_script):
@@ -352,17 +392,61 @@ def run_workflow(evidence_path, memory_file=None):
         print(f"[-] Bulk-Extractor analysis failed: {e}")
         print("    [*] Continuing with other forensic tools...")
 
-    # 6. Run HashDeep Verification
+    # 6. Run HashDeep Verification and COMPARE against baseline
     print("\n=== Running HashDeep Verification ===")
     verification_dir = os.path.join(subdirs['hashdeep'], "verification")
     os.makedirs(verification_dir, exist_ok=True)
     verify_results = hashdeep.main(evidence_path, output_path=verification_dir)
-    print(f"[+] HashDeep verification completed. Report saved in: {verification_dir}")
+
+    # --- C-1 FIX: Actually compare baseline vs verification hashes ---
+    baseline_result = hash_results.get("result") if hash_results else None
+    verify_result   = verify_results.get("result") if verify_results else None
+
+    if baseline_result and verify_result and baseline_result.status == "SUCCESS" and verify_result.status == "SUCCESS":
+        md5_ok    = baseline_result.md5_hash    == verify_result.md5_hash
+        sha1_ok   = baseline_result.sha1_hash   == verify_result.sha1_hash
+        sha256_ok = baseline_result.sha256_hash == verify_result.sha256_hash
+        integrity_ok = md5_ok and sha1_ok and sha256_ok
+
+        print(f"\n{'='*60}")
+        print("EVIDENCE INTEGRITY VERIFICATION RESULT")
+        print(f"{'='*60}")
+        print(f"  MD5    match: {'PASS ✓' if md5_ok    else 'FAIL ✗'}")
+        print(f"  SHA1   match: {'PASS ✓' if sha1_ok   else 'FAIL ✗'}")
+        print(f"  SHA256 match: {'PASS ✓' if sha256_ok else 'FAIL ✗'}")
+        if integrity_ok:
+            print("[VERIFIED] Evidence integrity maintained — hashes match.")
+        else:
+            print("[WARNING]  INTEGRITY FAILURE — hashes DO NOT match!")
+            print("           Evidence may have been modified during analysis.")
+        print(f"{'='*60}")
+
+        # Write verification summary to the verification directory
+        summary_path = os.path.join(verification_dir, "integrity_verification.txt")
+        with open(summary_path, "w", encoding="utf-8") as vf:
+            vf.write("EVIDENCE INTEGRITY VERIFICATION REPORT\n")
+            vf.write("=" * 60 + "\n")
+            vf.write(f"Evidence: {evidence_path}\n")
+            vf.write(f"Verified: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            vf.write("BASELINE HASHES\n")
+            vf.write(f"  MD5:    {baseline_result.md5_hash}\n")
+            vf.write(f"  SHA1:   {baseline_result.sha1_hash}\n")
+            vf.write(f"  SHA256: {baseline_result.sha256_hash}\n\n")
+            vf.write("VERIFICATION HASHES\n")
+            vf.write(f"  MD5:    {verify_result.md5_hash}\n")
+            vf.write(f"  SHA1:   {verify_result.sha1_hash}\n")
+            vf.write(f"  SHA256: {verify_result.sha256_hash}\n\n")
+            vf.write(f"MD5    match: {'PASS' if md5_ok    else 'FAIL'}\n")
+            vf.write(f"SHA1   match: {'PASS' if sha1_ok   else 'FAIL'}\n")
+            vf.write(f"SHA256 match: {'PASS' if sha256_ok else 'FAIL'}\n\n")
+            vf.write(f"OVERALL: {'INTEGRITY MAINTAINED' if integrity_ok else 'INTEGRITY FAILURE — EVIDENCE MAY BE COMPROMISED'}\n")
+        print(f"[+] Integrity report saved: {summary_path}")
+    else:
+        print("[WARNING] Could not compare hashes — one or both hash runs failed.")
+
 
     print(f"\n=== Generating Final Reports ===")
     try:
-        import sys
-        
         # Get the Python executable (same way as orchestrator)
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         venv_python = os.path.join(project_root, ".venv", "Scripts", "python.exe")
@@ -378,8 +462,7 @@ def run_workflow(evidence_path, memory_file=None):
         env = os.environ.copy()
         env['CASE_DIR'] = case_results_dir
         
-        import subprocess as sp  # Use alias to avoid collision
-        result = sp.run([
+        result = subprocess.run([
             python_executable, report_script
         ], cwd=os.path.dirname(__file__), env=env, capture_output=True, text=True, timeout=300)
         
@@ -418,7 +501,6 @@ def run_workflow(evidence_path, memory_file=None):
     for cleanup_path in cleanup_paths:
         if os.path.exists(cleanup_path):
             try:
-                import shutil
                 shutil.rmtree(cleanup_path)
                 print(f"    [+] Cleaned up stray Evidence folder: {cleanup_path}")
             except Exception as e:

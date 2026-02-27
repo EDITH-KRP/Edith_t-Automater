@@ -464,8 +464,9 @@ if __name__ == "__main__":
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     case_id = f"CASE_{filename}_{timestamp}".replace(".", "_")
 
-    # Set output path
-    output_path = r"e:\Github-adhi982\Edith_t-Automater\tools\hashdeep\Initial_Hash_output"
+    # Set output path - use relative path from script location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_path = os.path.join(script_dir, "Initial_Hash_output")
 
     print()
     print(f"Target: {disk_image_path}")

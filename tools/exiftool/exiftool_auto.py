@@ -22,6 +22,8 @@ import logging
 import subprocess
 import hashlib
 import platform
+import struct
+import zlib
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
@@ -115,7 +117,7 @@ class AutomatedExifTool:
             
             if result.returncode == 0:
                 return result.stdout.strip().split('\n')[0]
-        except:
+        except Exception:
             pass
         
         raise FileNotFoundError("ExifTool executable not found")
@@ -179,6 +181,134 @@ class AutomatedExifTool:
         self.logger.info(f"Found {len(evidence_files)} supported files")
         return evidence_files
     
+    # ------------------------------------------------------------------ #
+    # EWF / E01 binary header parser                                       #
+    # ------------------------------------------------------------------ #
+    def _extract_ewf_header_metadata(self, e01_path: Path) -> dict:
+        """
+        Parse the E01/EWF binary segment file to extract the embedded
+        'header' or 'header2' section that contains case-level metadata
+        (case number, examiner, acquisition date/time, media type, etc.).
+
+        Returns a flat dict whose keys are prefixed with 'EWF:'.  Returns
+        an empty dict if the file is not a recognised EWF container or if
+        no header section can be found.
+        """
+        EWF_SIGNATURES = (
+            b'EVF\x09\x0D\x0A\xFF\x00',   # EWF-E01 (Guidance Software / EnCase)
+            b'LWF\x09\x0D\x0A\xFF\x00',   # EWF-Lx01 (logical evidence)
+            b'EWF\x09\x0D\x0A\xFF\x00',   # generic EWF2
+        )
+        # Human-readable names for the single-character / short keys used
+        # in the EWF 'header' section (FTK Imager / EnCase convention)
+        KEY_MAP = {
+            'a':  'EWF:Notes',
+            'c':  'EWF:CaseNumber',
+            'e':  'EWF:Description',
+            'md': 'EWF:DriveModel',
+            'm':  'EWF:AcquisitionStartDateTime',
+            'n':  'EWF:EvidenceNumber',
+            'ov': 'EWF:OperatingSystem',
+            'av': 'EWF:AcquisitionSoftware',
+            'p':  'EWF:MediaType',
+            'r':  'EWF:CompressionType',
+            'sn': 'EWF:DriveSerial',
+            't':  'EWF:ExaminerName',
+            # FTK Imager stores acquisition *end* datetime in the 'u' slot
+            'u':  'EWF:AcquisitionEndDateTime',
+        }
+        MEDIA_TYPES  = {'0': 'Removable', '1': 'Fixed/HDD', '2': 'Optical',
+                        '3': 'Memory',    '4': 'Network'}
+        COMPRESSION  = {'0': 'None', '1': 'Fast', '2': 'Best',
+                        'f': 'Fast', 'b': 'Best', 'n': 'None'}
+
+        result: dict = {}
+        try:
+            with open(e01_path, 'rb') as fh:
+                sig = fh.read(8)
+                if not any(sig == s for s in EWF_SIGNATURES):
+                    return result   # not a standard EWF file
+
+                fh.read(5)          # start-of-fields (1 b) + segment number (2 b) + end-of-fields (2 b)
+
+                file_size = e01_path.stat().st_size
+                for _ in range(100):        # max 100 sections
+                    sec_start = fh.tell()
+                    if sec_start + 76 > file_size:
+                        break
+
+                    # Section descriptor: 76 bytes
+                    # [0-15]  type string (NUL-padded)
+                    # [16-23] next section offset (uint64 LE)
+                    # [24-31] section size       (uint64 LE)
+                    # [32-47] padding
+                    # [48-51] unused
+                    # NOTE: EnCase EWF spec says checksum is at bytes 72-75
+                    desc = fh.read(76)
+                    if len(desc) < 76:
+                        break
+
+                    sec_type = desc[0:16].rstrip(b'\x00').decode('ascii', errors='replace').strip()
+                    next_off = struct.unpack_from('<Q', desc, 16)[0]
+                    sec_size = struct.unpack_from('<Q', desc, 24)[0]
+
+                    data_size = (sec_size - 76) if sec_size > 76 else 0
+
+                    if sec_type in ('header', 'header2') and data_size > 0:
+                        raw = fh.read(data_size)
+                        try:
+                            plain = zlib.decompress(raw)
+                            text  = (plain.decode('utf-16-le', errors='replace')
+                                     if sec_type == 'header2'
+                                     else plain.decode('ascii', errors='replace'))
+
+                            # Format:
+                            #   line 0: version ("1")
+                            #   line 1: "main"
+                            #   line 2: tab-separated key identifiers
+                            #   line 3: tab-separated values
+                            lines = [l.rstrip('\r') for l in text.split('\n')]
+                            for i, line in enumerate(lines):
+                                if line.strip() == 'main' and i + 2 < len(lines):
+                                    keys   = lines[i + 1].split('\t')
+                                    values = lines[i + 2].split('\t') if (i + 2) < len(lines) else []
+                                    for k, v in zip(keys, values):
+                                        k, v = k.strip(), v.strip()
+                                        if k and v and k in KEY_MAP:
+                                            friendly = KEY_MAP[k]
+                                            if k == 'p':
+                                                v = MEDIA_TYPES.get(v, v)
+                                            elif k == 'r':
+                                                v = COMPRESSION.get(v, v)
+                                            elif k in ('m', 'u'):
+                                                # EWF datetime: "YYYY M D H MM SS" → ISO
+                                                parts = v.split()
+                                                if len(parts) >= 6:
+                                                    try:
+                                                        v = (f"{int(parts[0]):04d}-{int(parts[1]):02d}-"
+                                                             f"{int(parts[2]):02d} {int(parts[3]):02d}:"
+                                                             f"{int(parts[4]):02d}:{int(parts[5]):02d}")
+                                                    except (ValueError, IndexError):
+                                                        pass  # keep raw if parse fails
+                                            result[friendly] = v
+                                    break
+                        except Exception:
+                            pass
+                        if result:
+                            break   # header section found and parsed — stop
+
+                    elif sec_type in ('done', 'next'):
+                        break
+
+                    if next_off == 0 or next_off <= sec_start:
+                        break
+                    fh.seek(next_off)
+
+        except Exception as exc:
+            self.logger.warning(f"EWF header parse warning for {e01_path.name}: {exc}")
+
+        return result
+
     def process_e01_file_directly(self, e01_file_path: str) -> Dict[str, Any]:
         """Process a single .E01 file directly and extract metadata"""
         e01_path = Path(e01_file_path).resolve()
@@ -199,13 +329,65 @@ class AutomatedExifTool:
         
         start_time = datetime.now()
         
-        # Process the .E01 file directly
+        # Step 1: Run ExifTool (extracts File: group attributes even for E01)
         result = self._run_exiftool_single_file(e01_path)
-        
+
+        # Step 2: Parse EWF binary header for embedded case metadata
+        print("[+] Parsing EWF binary header for embedded case metadata...")
+        ewf_meta = self._extract_ewf_header_metadata(e01_path)
+        if ewf_meta:
+            print(f"[+] EWF header parsed — {len(ewf_meta)} metadata field(s) extracted")
+            for k, v in ewf_meta.items():
+                print(f"    {k}: {v}")
+        else:
+            print("[-] No EWF case metadata found in header (image may be raw/non-E01)")
+
+        # Step 3: Merge EWF metadata into the ExifTool JSON output
+        json_file = self.output_dir / f"metadata_{self.case_id}.json"
+        if result.get("success") and result.get("output_file") and Path(result["output_file"]).exists():
+            try:
+                with open(result["output_file"], 'r', encoding='utf-8') as f:
+                    existing = json.load(f)
+                if isinstance(existing, list) and existing:
+                    rec = existing[0]
+                elif isinstance(existing, dict):
+                    rec = existing
+                else:
+                    rec = {}
+                # Replace the uninformative error with a description
+                if rec.get('ExifTool:Error') == 'Unknown file type':
+                    rec['ExifTool:Error'] = 'EWF/E01 container — basic file attributes extracted'
+                    rec['EWF:FormatNote'] = 'Embedded case metadata extracted from EWF header section'
+                rec.update(ewf_meta)
+                merged = [rec] if not isinstance(existing, list) else (existing[:-1] + [rec])
+                with open(json_file, 'w', encoding='utf-8') as f:
+                    json.dump(merged, f, indent=2, ensure_ascii=False)
+                result["output_file"] = str(json_file)
+                result["metadata_entries"] = len(rec)
+            except Exception as merge_err:
+                self.logger.warning(f"Could not merge EWF metadata: {merge_err}")
+        elif ewf_meta:
+            # ExifTool failed but we have EWF metadata — build JSON from scratch
+            stat = e01_path.stat()
+            rec = {
+                "SourceFile": str(e01_path),
+                "File:FileName": e01_path.name,
+                "File:Directory": str(e01_path.parent),
+                "File:FileSize": f"{stat.st_size // (1024*1024)} MB",
+                "File:FileModifyDate": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "File:FilePermissions": "-rw-rw-rw-",
+                "ExifTool:ExifToolVersion": "N/A",
+                "EWF:FormatNote": "EWF/E01 container — file attributes from Python stat()",
+            }
+            rec.update(ewf_meta)
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump([rec], f, indent=2, ensure_ascii=False)
+            result = {"success": True, "output_file": str(json_file),
+                      "metadata_entries": len(rec)}
+
         if result.get("success"):
-            json_file = result.get("output_file")
-            if json_file and Path(json_file).exists():
-                self._create_multiple_outputs(json_file)
+            if json_file.exists():
+                self._create_multiple_outputs(str(json_file))
             self._generate_summary_report([e01_path], result)
         
         processing_time = (datetime.now() - start_time).total_seconds()
@@ -218,6 +400,7 @@ class AutomatedExifTool:
             "file_path": str(e01_path),
             "result_directory": str(self.case_result_dir),
             "metadata_entries": result.get("metadata_entries", 0),
+            "ewf_fields_extracted": len(ewf_meta),
             "output_files": {
                 "json": str(self.output_dir / f"metadata_{self.case_id}.json"),
                 "csv": str(self.output_dir / f"metadata_{self.case_id}.csv"),
@@ -235,13 +418,13 @@ class AutomatedExifTool:
         print(f"{'='*60}")
         
         if final_result["status"] == "SUCCESS":
-            print("✅ E01 metadata extraction successful!")
-            print(f"📊 Files processed: 1")
-            print(f"📈 Metadata entries: {final_result['metadata_entries']}")
-            print(f"⏱️  Processing time: {final_result['processing_time']:.2f} seconds")
-            print(f"📁 Results saved to: {final_result['result_directory']}")
+            print("[OK] E01 metadata extraction successful!")
+            print(f"     ExifTool fields : {final_result['metadata_entries']}")
+            print(f"     EWF header fields: {final_result['ewf_fields_extracted']}")
+            print(f"     Processing time : {final_result['processing_time']:.2f} seconds")
+            print(f"     Results saved to: {final_result['result_directory']}")
         else:
-            print("❌ E01 processing failed!")
+            print("[FAIL] E01 processing failed!")
             print(f"Error: {final_result.get('error', 'Unknown error')}")
         
         print(f"{'='*60}\n")
@@ -468,12 +651,22 @@ class AutomatedExifTool:
                         f.write(f"Full Path: {file_path}\n")
                         f.write(f"Size: {file_path.stat().st_size:,} bytes\n")
                         
-                        # Generate hashes
+                        # Generate hashes using chunked reading (M-12 fix: avoid loading entire file into RAM)
+                        CHUNK = 8 * 1024 * 1024  # 8 MB
+                        md5 = hashlib.md5()
+                        sha1 = hashlib.sha1()
+                        sha256 = hashlib.sha256()
                         with open(file_path, 'rb') as file_data:
-                            data = file_data.read()
-                            f.write(f"MD5: {hashlib.md5(data).hexdigest()}\n")
-                            f.write(f"SHA1: {hashlib.sha1(data).hexdigest()}\n")
-                            f.write(f"SHA256: {hashlib.sha256(data).hexdigest()}\n")
+                            while True:
+                                chunk = file_data.read(CHUNK)
+                                if not chunk:
+                                    break
+                                md5.update(chunk)
+                                sha1.update(chunk)
+                                sha256.update(chunk)
+                        f.write(f"MD5: {md5.hexdigest()}\n")
+                        f.write(f"SHA1: {sha1.hexdigest()}\n")
+                        f.write(f"SHA256: {sha256.hexdigest()}\n")
                         
                         f.write("-" * 50 + "\n")
                         

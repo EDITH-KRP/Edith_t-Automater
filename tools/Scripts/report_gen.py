@@ -13,13 +13,15 @@ try:
     PDF_AVAILABLE = True
     PDF_METHOD = "playwright"
     print("[OK] Playwright available for PDF generation")
-except ImportError:
+except (ImportError, Exception):
     try:
         import weasyprint
+        # Verify weasyprint is actually usable (requires GTK on Windows)
+        _test = weasyprint.HTML
         PDF_AVAILABLE = True
         PDF_METHOD = "weasyprint"
         print("[OK] WeasyPrint available for PDF generation")
-    except ImportError:
+    except (ImportError, OSError, Exception):
         # Fallback to Windows built-in method
         import subprocess
         import tempfile
@@ -157,7 +159,7 @@ $ie.Quit()
             ], capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0 and os.path.exists(pdf_file_path):
-                print(f"[OK] PDF generated: {{os.path.basename(pdf_file_path)}}")
+                print(f"[OK] PDF generated: {os.path.basename(pdf_file_path)}")
                 return True
             else:
                 print(f"[WARN] Windows PDF generation had issues, trying simple copy as fallback")
@@ -174,12 +176,12 @@ $ie.Quit()
                 pdf_substitute_path = pdf_file_path.replace('.pdf', '_text.txt')
                 with open(pdf_substitute_path, 'w', encoding='utf-8') as txt_f:
                     txt_f.write(f"FORENSIC REPORT (Text Format)\n")
-                    txt_f.write(f"Generated: {{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}}\n")
-                    txt_f.write(f"Original HTML: {{os.path.basename(html_file_path)}}\n")
+                    txt_f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    txt_f.write(f"Original HTML: {os.path.basename(html_file_path)}\n")
                     txt_f.write("="*80 + "\n\n")
                     txt_f.write(text_content)
                 
-                print(f"[INFO] Created text version: {{os.path.basename(pdf_substitute_path)}}")
+                print(f"[INFO] Created text version: {os.path.basename(pdf_substitute_path)}")
                 return True
                 
         finally:
@@ -196,7 +198,12 @@ $ie.Quit()
 def convert_html_to_pdf(html_file_path, pdf_file_path):
     """Convert HTML to PDF using available method"""
     if not PDF_AVAILABLE:
-        print(f"[WARN] Skipping PDF generation for {os.path.basename(html_file_path)} - No PDF library available")
+        print(f"[WARN] No PDF library available - creating HTML backup instead")
+        # Create a backup HTML file as PDF substitute
+        import shutil
+        backup_path = pdf_file_path.replace('.pdf', '.html')
+        shutil.copy2(html_file_path, backup_path)
+        print(f"[INFO] HTML backup created: {os.path.basename(backup_path)}")
         return False
     
     # Use the available method
@@ -205,7 +212,13 @@ def convert_html_to_pdf(html_file_path, pdf_file_path):
     elif PDF_METHOD == "weasyprint":
         return convert_html_to_pdf_weasyprint(html_file_path, pdf_file_path)
     else:
-        return convert_html_to_pdf_windows_builtin(html_file_path, pdf_file_path)
+        # Windows built-in method often fails, so try graceful fallback
+        print(f"[WARN] Windows built-in PDF method unreliable - creating HTML backup")
+        import shutil
+        backup_path = pdf_file_path.replace('.pdf', '.html')
+        shutil.copy2(html_file_path, backup_path)
+        print(f"[INFO] HTML backup created: {os.path.basename(backup_path)}")
+        return False
 
 def create_pdf_directory(case_folder_path):
     """Create Reports pdf directory in the case folder"""
@@ -249,11 +262,35 @@ def convert_all_html_to_pdf(final_reports_dir, case_folder_path):
     return successful_pdfs
 
 def read_questions_file():
-    """Read the questions.txt file"""
+    """Read the questions.txt or automated evidence collection form file"""
+    # If orchestrator set CASE_DIR, use it directly — avoids picking the wrong case
+    case_dir_env = os.environ.get('CASE_DIR', '').strip()
+    if case_dir_env and os.path.isdir(case_dir_env):
+        questions_dir = os.path.join(case_dir_env, 'Questions')
+        for pattern in [
+            os.path.join(questions_dir, 'questions.txt'),
+            os.path.join(questions_dir, 'evidence_collection_form_*.txt'),
+        ]:
+            matches = glob.glob(pattern)
+            if matches:
+                matches.sort(key=os.path.getmtime, reverse=True)
+                with open(matches[0], 'r', errors='ignore') as f:
+                    content = f.read()
+                print(f"Using data from: {matches[0]}")
+                return content, matches[0]
+        print(f"[WARN] CASE_DIR set to {case_dir_env} but no questions file found there.")
+
     # Look for questions.txt files in the new Results/CASE_*/Questions directory structure
     pattern = os.path.join('..', '..', 'Results', 'CASE_*', 'Questions', 'questions.txt')
     question_files = glob.glob(pattern)
-    
+
+    # Also search for automated evidence collection forms (evidence_collection_form_*.txt)
+    if not question_files:
+        auto_pattern = os.path.join('..', '..', 'Results', 'CASE_*', 'Questions', 'evidence_collection_form_*.txt')
+        question_files = glob.glob(auto_pattern)
+        if question_files:
+            print("Found automated evidence collection form(s).")
+
     if not question_files:
         print("No questions.txt files found in Results directory. Looking in old evidence directory...")
         # Fallback to old structure for backward compatibility
@@ -281,6 +318,13 @@ def read_questions_file():
 
 def get_output_directory(questions_file_path, timestamp):
     """Determine the correct output directory based on the questions file path"""
+    # Prefer CASE_DIR env var (set by orchestrator) — gives absolute, unambiguous path
+    case_dir_env = os.environ.get('CASE_DIR', '').strip()
+    if case_dir_env and os.path.isdir(case_dir_env):
+        output_dir = os.path.join(case_dir_env, 'Final_Reports')
+        os.makedirs(output_dir, exist_ok=True)
+        return output_dir
+
     # Check if the questions file is in the new Results/CASE_* structure
     if 'Results' in questions_file_path and 'CASE_' in questions_file_path:
         # Extract the case folder from the path
@@ -352,6 +396,33 @@ def parse_questions_data(content):
     
     return data
 
+
+def _get_field(data, full_key, default=""):
+    """
+    Lookup a form field by its full key (with parenthetical options e.g. 'Device Type
+    (Laptop/Desktop/Server/Other)'), falling back to the base key (without the
+    parenthetical) so that both interactive-form data AND automated-form data work.
+    Also handles legacy 'Storage Master/Working Copy' short keys.
+    """
+    val = data.get(full_key, "")
+    if val:
+        return val
+    # Strip trailing parenthetical to get the base key
+    base_key = re.sub(r'\s*\([^)]*\)\s*$', '', full_key).strip()
+    if base_key != full_key:
+        val = data.get(base_key, "")
+    if val:
+        return val
+    # Legacy alias: "Storage Master Copy" → "Storage Master Copy Make/Model/Size/Serial No"
+    legacy_map = {
+        "Storage Master Copy Make/Model/Size/Serial No": "Storage Master Copy",
+        "Storage Working Copy Make/Model/Size/Serial No": "Storage Working Copy",
+    }
+    if full_key in legacy_map:
+        val = data.get(legacy_map[full_key], "")
+    return val if val else default
+
+
 def extract_date_time(datetime_str):
     """Extract date and time from a combined string"""
     # Clean up any example text
@@ -410,14 +481,14 @@ def generate_digital_evidence_form(data, timestamp, output_dir):
     
     # Fallback to storage master copy if victim device info is not available (for backward compatibility)
     if not victim_device:
-        victim_device = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
+        victim_device = _get_field(data, "Storage Master Copy Make/Model/Size/Serial No")
         print("[WARN] Victim device information not found, using storage master copy info as fallback")
     
     make, model, size, serial_no = extract_device_info(victim_device)
     
     # RAM Collection
-    ram_collected = data.get("Volatile Memory / RAM Collected (Yes/No)", "")
-    shutdown_type = data.get("Shut Down Type (Normal/Power Pulled/Battery Removed/N/A)", "").lower()
+    ram_collected = _get_field(data, "Volatile Memory / RAM Collected (Yes/No)")
+    shutdown_type = _get_field(data, "Shut Down Type (Normal/Power Pulled/Battery Removed/N/A)").lower()
     
     # Basic information
     html_content = html_content.replace('<td colspan="4">Name of The Authorized Officer:</td>', 
@@ -466,7 +537,7 @@ def generate_digital_evidence_form(data, timestamp, output_dir):
                                      f'<td class="row-header">Shut Down Type: {shutdown_type}</td>')
     
     # Device Type - Handle radio buttons
-    device_type = data.get("Device Type (Laptop/Desktop/Server/Other)", "").lower()
+    device_type = _get_field(data, "Device Type (Laptop/Desktop/Server/Other)").lower()
     if "laptop" in device_type:
         html_content = html_content.replace('id="laptop" name="device" value="laptop">', 
                                          'id="laptop" name="device" value="laptop" checked>')
@@ -484,7 +555,7 @@ def generate_digital_evidence_form(data, timestamp, output_dir):
                                          'id="others" name="device" value="others" checked>')
 
     # Device Status - Handle radio buttons
-    device_status = data.get("Device Status at Seizure (On/Off/Sleep)", "").lower()
+    device_status = _get_field(data, "Device Status at Seizure (On/Off/Sleep)").lower()
     if "on" in device_status:
         html_content = html_content.replace('id="on" name="power" value="on">', 
                                          'id="on" name="power" value="on" checked>')
@@ -527,7 +598,7 @@ def generate_digital_evidence_form(data, timestamp, output_dir):
                                          'id="no-encrypt" name="encrypted" value="no" checked>')
     
     # Hard Disk Handling - Handle radio buttons
-    disk_handling = data.get("Hard Disk Handling (Seizure/Forensic Previewing/Imaging/Backup)", "").lower()
+    disk_handling = _get_field(data, "Hard Disk Handling (Seizure/Forensic Previewing/Imaging/Backup)").lower()
     if "seizure" in disk_handling:
         html_content = html_content.replace('id="seizure" name="handling" value="seizure">', 
                                          'id="seizure" name="handling" value="seizure" checked>')
@@ -547,13 +618,13 @@ def generate_digital_evidence_form(data, timestamp, output_dir):
                                      f'<td colspan="4">Detail of imaging software / Version to be given: {imaging_software}</td>')
     
     # Hash Calculation - Handle radio buttons and algorithm
-    hash_calc = data.get("Is Hash Value Calculated (Yes/No)", "").lower()
+    hash_calc = _get_field(data, "Is Hash Value Calculated (Yes/No)").lower()
     if "yes" in hash_calc:
         html_content = html_content.replace('id="yes-hash" name="hash" value="yes">', 
                                          'id="yes-hash" name="hash" value="yes" checked>')
         
         # Algorithm selection
-        algorithm = data.get("Algorithm Used (MD5/SHA1/Others)", "").lower()
+        algorithm = _get_field(data, "Algorithm Used (MD5/SHA1/Others)").lower()
         if "md5" in algorithm:
             html_content = html_content.replace('id="md5" name="algorithm" value="md5">', 
                                              'id="md5" name="algorithm" value="md5" checked>')
@@ -578,7 +649,7 @@ def generate_digital_evidence_form(data, timestamp, output_dir):
                                          f'<td colspan="4">SHA1 hash value : {sha1_hash}</td>')
     
     # Witness Signature - Handle radio buttons
-    witness_signature = data.get("Is Witness Signature Taken (Yes/No)", "").lower()
+    witness_signature = _get_field(data, "Is Witness Signature Taken (Yes/No)").lower()
     if "yes" in witness_signature:
         html_content = html_content.replace('id="yes-witness" name="witness" value="yes">', 
                                          'id="yes-witness" name="witness" value="yes" checked>')
@@ -617,7 +688,7 @@ def generate_digital_evidence_form(data, timestamp, output_dir):
     html_content = html_content.replace('<td>Time:</td>', f'<td>Time: {replacement_time}</td>')
     
     # Working Copy Details - Extract the working copy details
-    storage_working = data.get("Storage Working Copy Make/Model/Size/Serial No", "")
+    storage_working = _get_field(data, "Storage Working Copy Make/Model/Size/Serial No")
     working_make, working_model, working_size, working_serial = extract_device_info(storage_working)
     
     # If working copy data is empty but master copy data exists, use master copy data for working copy
@@ -692,14 +763,12 @@ def generate_chain_of_custody_form(data, timestamp, output_dir):
     start_datetime = f"{start_date} {start_time}" if start_date and start_time else start_date or start_time
     
     # Device information for master copy
-    storage_master = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
+    storage_master = _get_field(data, "Storage Master Copy Make/Model/Size/Serial No")
     master_make, master_model, master_size, master_serial = extract_device_info(storage_master)
     
     # Device information for working copy
-    storage_working = data.get("Storage Working Copy Make/Model/Size/Serial No", "")
+    storage_working = _get_field(data, "Storage Working Copy Make/Model/Size/Serial No")
     working_make, working_model, working_size, working_serial = extract_device_info(storage_working)
-    
-    # Basic case information
     html_content = html_content.replace('<td colspan="4" style="font-weight: bold;">Name of the Case:</td>', 
                                       f'<td colspan="4" style="font-weight: bold;">Name of the Case: {case_name}</td>')
     html_content = html_content.replace('<td colspan="4" style="font-weight: bold;">Authorized Officer:</td>', 
@@ -751,13 +820,13 @@ def generate_form_65B(data, timestamp, output_dir):
     case_name = data.get("Case Name / No", "")
     premise_address = data.get("Premise Address", "")
     device_owner = data.get("Device Owner / In Possession of", "")
-    device_type = data.get("Device Type (Laptop/Desktop/Server/Other)", "")
+    device_type = _get_field(data, "Device Type (Laptop/Desktop/Server/Other)")
     
     # Device information
-    storage_master = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
+    storage_master = _get_field(data, "Storage Master Copy Make/Model/Size/Serial No")
     master_make, master_model, master_size, master_serial = extract_device_info(storage_master)
     
-    storage_working = data.get("Storage Working Copy Make/Model/Size/Serial No", "")
+    storage_working = _get_field(data, "Storage Working Copy Make/Model/Size/Serial No")
     working_make, working_model, working_size, working_serial = extract_device_info(storage_working)
     
     # If working copy data is empty but master copy data exists, use master copy data for working copy
@@ -852,13 +921,13 @@ def generate_job_form(data, timestamp, output_dir):
     print(f"  - Date/Time Out: {end_date} {end_time}")
     
     # Device information
-    device_type = data.get("Device Type (Laptop/Desktop/Server/Other)", "")
+    device_type = _get_field(data, "Device Type (Laptop/Desktop/Server/Other)")
     device_owner = data.get("Device Owner / In Possession of", "")
-    storage_master = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
+    storage_master = _get_field(data, "Storage Master Copy Make/Model/Size/Serial No")
     make, model, size, serial_no = extract_device_info(storage_master)
     
     # Hard disk handling type
-    disk_handling = data.get("Hard Disk Handling (Seizure/Forensic Previewing/Imaging/Backup)", "")
+    disk_handling = _get_field(data, "Hard Disk Handling (Seizure/Forensic Previewing/Imaging/Backup)")
     
     # Hard disk capacity and counts
     hdd_capacity = data.get("Hard Disk Capacity", "")
@@ -1196,12 +1265,12 @@ def generate_master_copy(data, timestamp, output_dir):
         search_date = ""
     
     assessee_name = data.get("Name of Assessee / Party", "")
-    device_type = data.get("Device Type (Laptop/Desktop/Server/Other)", "")
+    device_type = _get_field(data, "Device Type (Laptop/Desktop/Server/Other)")
     authorized_officer = data.get("Authorized Officer", "")
     witness_name = data.get("Witness Name", "")
     
     # Extract HDD serial number from storage info
-    storage_master = data.get("Storage Master Copy Make/Model/Size/Serial No", "")
+    storage_master = _get_field(data, "Storage Master Copy Make/Model/Size/Serial No")
     make, model, size, serial_no = extract_device_info(storage_master)
     
     # Fill the header with HDD Serial No
@@ -1328,11 +1397,18 @@ def main():
     
     # Extract case folder path for PDF generation
     case_folder_path = None
-    if 'Results' in questions_file_path and 'CASE_' in questions_file_path:
-        parts = questions_file_path.split(os.sep)
-        for i, part in enumerate(parts):
+    # Prefer CASE_DIR env var when set by orchestrator
+    _case_dir_env = os.environ.get('CASE_DIR', '').strip()
+    if _case_dir_env and os.path.isdir(_case_dir_env):
+        case_folder_path = _case_dir_env
+    elif 'Results' in questions_file_path and 'CASE_' in questions_file_path:
+        # Try to build absolute case_folder_path from the path
+        parts = questions_file_path.replace('\\', '/').split('/')
+        for part in parts:
             if part.startswith('CASE_'):
-                case_folder_path = os.path.join('..', '..', 'Results', part)
+                # Find the full path up to and including the CASE_ folder
+                idx = questions_file_path.replace('\\', '/').find(part)
+                case_folder_path = questions_file_path[:idx + len(part)]
                 break
     
     # Generate PDFs if case folder is found

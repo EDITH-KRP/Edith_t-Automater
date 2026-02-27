@@ -13,7 +13,7 @@ block_cipher = None
 # ============================================================================
 
 a = Analysis(
-    ['orchestrator/launcher.py'],  # Entry point (will create this)
+    ['orchestrator/launcher.py'],  # Entry point
     pathex=[os.getcwd()],
     binaries=[],
     datas=[
@@ -33,6 +33,9 @@ a = Analysis(
         # Configuration files
         ('config.json', '.'),
         ('README.md', '.'),
+        # Application icon assets
+        ('EyezOn.png', '.'),
+        ('EyezOn.ico', '.'),
     ],
     hiddenimports=[
         # Forensic tools
@@ -79,7 +82,6 @@ exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
-    a.zipfiles,
     a.datas,
     [],
     name='EDITH-Automater',
@@ -89,12 +91,12 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,  # Show console window
+    console=True,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # Icon file not included
+    icon='EyezOn.ico',
 )
 
 # ============================================================================

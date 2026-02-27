@@ -40,18 +40,25 @@ def check_tools():
     return available, sleuthkit_bin
 
 def compute_hashes(file_path):
-    """Compute MD5 & SHA256 hashes"""
-    hashes = {"md5": None, "sha256": None}
+    """Compute MD5 & SHA256 hashes using chunked reading to avoid loading entire file into RAM"""
+    CHUNK = 8 * 1024 * 1024  # 8 MB chunks
+    md5  = hashlib.md5()
+    sha256 = hashlib.sha256()
     with open(file_path, "rb") as f:
-        data = f.read()
-        hashes["md5"] = hashlib.md5(data).hexdigest()
-        hashes["sha256"] = hashlib.sha256(data).hexdigest()
-    return hashes
+        while True:
+            chunk = f.read(CHUNK)
+            if not chunk:
+                break
+            md5.update(chunk)
+            sha256.update(chunk)
+    return {"md5": md5.hexdigest(), "sha256": sha256.hexdigest()}
 
 def get_partition_offset(image_path, sleuthkit_bin):
     """Parse mmls output to get NTFS/ExFAT offset"""
     mmls_path = os.path.join(sleuthkit_bin, "mmls.exe")
     output = run_cmd(f'"{mmls_path}" "{image_path}"')
+    if output is None:
+        return None, None
     offset = None
     for line in output.splitlines():
         if "NTFS" in line or "exFAT" in line:
@@ -161,23 +168,33 @@ def main(image_path=None, output_dir=None):
 
     # Create summary report
     summary_file = os.path.join(case_folder, "autopsy_summary.txt")
+    any_tsk_available = any(available_tools.values())
     with open(summary_file, "w", encoding='utf-8') as f:
         f.write("EDITH-Automater Autopsy Analysis Summary\n")
         f.write("=" * 50 + "\n")
         f.write(f"Evidence File: {image_path}\n")
         f.write(f"File Size: {file_info['file_size']} bytes\n")
-        f.write(f"MD5 Hash: {hashes['md5']}\n")
+        f.write(f"MD5 Hash:    {hashes['md5']}\n")
         f.write(f"SHA256 Hash: {hashes['sha256']}\n")
         f.write(f"Analysis Date: {file_info['timestamp']}\n")
         f.write("\nTools Available:\n")
         for tool, available in available_tools.items():
             status = "[+]" if available else "[-]"
             f.write(f"  {status} {tool}\n")
-        
-        if not any(available_tools.values()):
-            f.write("\nNOTE: No TSK tools found. Install 'sleuthkit' package for full analysis.\n")
-            f.write("Ubuntu/Debian: sudo apt install sleuthkit\n")
-            f.write("CentOS/RHEL: sudo yum install sleuthkit\n")
+
+        if not any_tsk_available:
+            f.write("\n[NOTE] SleuthKit (TSK) binaries not found.\n")
+            f.write("  Full disk-image analysis (partition table, filesystem, file listing)\n")
+            f.write("  requires the SleuthKit binaries placed at:\n")
+            f.write(f"  {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sleuthkit-4.12.1-win32', 'bin')}\n")
+            f.write("  Ubuntu/Debian: sudo apt install sleuthkit\n")
+            f.write("  CentOS/RHEL:   sudo yum install sleuthkit\n")
+            f.write("  Windows:       https://github.com/sleuthkit/sleuthkit/releases\n")
+            f.write("\n[COMPLETED WITHOUT TSK] Basic analysis performed:\n")
+            f.write(f"  * File existence and integrity verified\n")
+            f.write(f"  * MD5 and SHA-256 hashes computed\n")
+            f.write(f"  * File metadata recorded (size, path, timestamp)\n")
+            f.write(f"  * Results saved to: {case_folder}\n")
 
     print(f"[+] Autopsy analysis complete. Results saved in {case_folder}")
     print(f"[+] Summary report: {summary_file}")

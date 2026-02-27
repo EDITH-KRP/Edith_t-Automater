@@ -14,12 +14,16 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
+if getattr(sys, 'frozen', False):
+    # Frozen (PyInstaller one-file): exe can be placed anywhere (USB, Desktop …).
+    # Put Results/, config.json, etc. right NEXT TO the exe so the user can find them.
+    PROJECT_ROOT = Path(sys.executable).resolve().parent
+    _tools_dir   = Path(sys._MEIPASS) / "tools"
+else:
+    PROJECT_ROOT = Path(__file__).parent.parent
+    _tools_dir   = PROJECT_ROOT / "tools"
 
-# Add project paths
-PROJECT_ROOT = Path(__file__).parent.parent
-sys.path.append(str(PROJECT_ROOT))
-sys.path.append(str(PROJECT_ROOT / "tools"))
+sys.path.insert(0, str(_tools_dir))
 
 # Import FTK module
 try:
@@ -33,46 +37,103 @@ class EDITHOrchestrator:
 
     def __init__(self):
         self.setup_logging()
-        self.project_root = Path(__file__).parent.parent
+        # ── Frozen-exe detection ─────────────────────────────────────────────
+        # When built with PyInstaller (one-file), __file__ resolves to the
+        # _MEIPASS temp dir.  Use sys.executable (the actual .exe) instead.
+        if getattr(sys, 'frozen', False):
+            # Frozen: Results/ lives next to the exe — easy to find on USB / Desktop
+            self.project_root = Path(sys.executable).resolve().parent
+            self._bundle_dir   = Path(sys._MEIPASS)
+        else:
+            self.project_root = Path(__file__).parent.parent
+            self._bundle_dir   = None
+        # ────────────────────────────────────────────────────────────────────
         self.results_dir = self.project_root / "Results"
         self.results_dir.mkdir(exist_ok=True)
         self.logger = logging.getLogger("EDITHOrchestrator")
         self.python_executable = self.get_python_executable()
+        self.config = self._load_config()
+
+    def _load_config(self):
+        """M-1 FIX: Load config.json and expose settings to the rest of the orchestrator."""
+        config_path = self.project_root / "config.json"
+        if config_path.exists():
+            try:
+                import json
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                self.logger.info(f"Configuration loaded from {config_path}")
+                return cfg
+            except Exception as e:
+                self.logger.warning(f"Could not load config.json: {e}. Using built-in defaults.")
+        return {}
 
     def get_python_executable(self):
-        """Get the correct Python executable, preferring virtual environment"""
-        # First check for virtual environment Python
+        """Get the correct Python executable, preferring virtual environment.
+        When running as a frozen exe the exe itself is NOT a Python interpreter,
+        so we must locate a real python on the system PATH."""
+        if getattr(sys, 'frozen', False):
+            # Frozen: find a real Python interpreter via PATH
+            for candidate in ('python', 'python3', 'py'):
+                found = shutil.which(candidate)
+                if found and Path(found).resolve() != Path(sys.executable).resolve():
+                    self.logger.info(f"Frozen mode — system Python found: {found}")
+                    return found
+            self.logger.warning(
+                "Frozen mode — no system Python found on PATH. "
+                "Install Python and ensure it is on the PATH."
+            )
+            return sys.executable   # last resort (will likely fail)
+
+        # Unfrozen: prefer venv
         venv_python = self.project_root / ".venv" / "Scripts" / "python.exe"
         if venv_python.exists():
             self.logger.info(f"Using virtual environment Python: {venv_python}")
             return str(venv_python)
-        
-        # Fall back to current sys.executable
+
         self.logger.info(f"Using system Python: {sys.executable}")
         return sys.executable
 
     def get_subprocess_env(self):
-        """Get environment with virtual environment activated"""
+        """Get environment with virtual environment activated.
+        When frozen, expose the _MEIPASS bundle dir on PYTHONPATH so
+        subprocesses (q_script, script_3, report_gen …) can import
+        the bundled packages."""
         env = os.environ.copy()
-        
+
         # Add virtual environment to PATH if it exists
         venv_scripts = self.project_root / ".venv" / "Scripts"
         if venv_scripts.exists():
             current_path = env.get('PATH', '')
             env['PATH'] = f"{venv_scripts};{current_path}"
             env['VIRTUAL_ENV'] = str(self.project_root / ".venv")
-            # Remove PYTHONHOME to avoid conflicts
             env.pop('PYTHONHOME', None)
-        
+
+        # When frozen, add bundle dir so scripts can import bundled modules
+        if self._bundle_dir and self._bundle_dir.exists():
+            existing_pp = env.get('PYTHONPATH', '')
+            bundle_str  = str(self._bundle_dir)
+            env['PYTHONPATH'] = f"{bundle_str};{existing_pp}" if existing_pp else bundle_str
+
         return env
+
+    def get_scripts_dir(self) -> Path:
+        """Return the Scripts directory whether running frozen or from source.
+        Frozen  → scripts are extracted to _MEIPASS/tools/Scripts
+        Unfrozen → scripts live under project_root/tools/Scripts"""
+        if self._bundle_dir and self._bundle_dir.exists():
+            return self._bundle_dir / "tools" / "Scripts"
+        return self.project_root / "tools" / "Scripts"
 
     def setup_logging(self):
         """Configure logging for the orchestrator"""
+        # Mod-8 FIX: use absolute path so log file location is predictable regardless of cwd
+        log_path = Path(__file__).parent / "orchestrator.log"
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler('orchestrator.log'),
+                logging.FileHandler(str(log_path)),
                 logging.StreamHandler()
             ]
         )
@@ -114,15 +175,22 @@ class EDITHOrchestrator:
         return case_dir, case_id
 
     def find_latest_case(self):
-        """Find the most recent case directory"""
+        """Find the most recent case directory by parsing the timestamp in the case ID name"""
         try:
             case_dirs = [d for d in self.results_dir.iterdir()
                         if d.is_dir() and d.name.startswith('CASE_')]
             if not case_dirs:
                 return None
 
-            # Sort by creation time (newest first)
-            latest = max(case_dirs, key=lambda x: x.stat().st_ctime)
+            # Mod-3 FIX: sort by the timestamp embedded in the name, not st_ctime
+            # (st_ctime is NOT creation time on Linux — it is inode change time)
+            def _case_key(p):
+                try:
+                    return p.name  # CASE_YYYYMMDD_HHMMSS sorts lexicographically = chronologically
+                except Exception:
+                    return p.name
+
+            latest = max(case_dirs, key=_case_key)
             return str(latest)
         except Exception as e:
             self.logger.error(f"Error finding latest case: {e}")
@@ -171,7 +239,7 @@ class EDITHOrchestrator:
 
         return True
 
-    async def run_evidence_collection_interactive(self, case_id=None, case_dir=None):
+    async def run_evidence_collection_interactive(self, case_id=None, case_dir=None, evidence_path=None):
         """Run interactive evidence collection using q_script.py"""
         self.logger.info("Starting Interactive Evidence Collection (q_script.py)")
 
@@ -179,22 +247,29 @@ class EDITHOrchestrator:
         print("EDITH-Automater: Interactive Evidence Collection")
         print(f"{'='*80}")
 
+        # C-4 FIX: pre-initialize so return dict is always valid even if an exception fires early
+        status = "error"
+        message = "Unknown error in evidence collection"
+
         try:
-            scripts_dir = self.project_root / "tools" / "Scripts"
-            original_cwd = os.getcwd()
+            scripts_dir = self.get_scripts_dir()
 
             try:
-                os.chdir(scripts_dir)
-
-                # Run q_script.py interactively
                 python_executable = self.python_executable
 
                 print(f"[INFO] Starting interactive evidence collection...")
                 print(f"[INFO] Running q_script.py...")
+                print(f"[INFO] Scripts dir: {scripts_dir}")
+
+                # Forward evidence path so q_script auto-confirms the image file question
+                env = self.get_subprocess_env()
+                if evidence_path and Path(evidence_path).is_file():
+                    env['EDITH_EVIDENCE_PATH'] = str(evidence_path)
+                    print(f"[INFO] Evidence path pre-supplied to questionnaire: {evidence_path}")
 
                 result = subprocess.run([
-                    python_executable, 'q_script.py'
-                ], timeout=1800, env=self.get_subprocess_env())  # 30 minute timeout for user interaction
+                    python_executable, str(scripts_dir / 'q_script.py')
+                ], timeout=1800, env=env, cwd=str(scripts_dir))  # 30 minute timeout for user interaction
 
                 if result.returncode == 0:
                     print(f"\n[SUCCESS] Evidence collection completed successfully!")
@@ -214,8 +289,8 @@ class EDITHOrchestrator:
                     status = "warning"
                     message = "Evidence collection completed with warnings"
 
-            finally:
-                os.chdir(original_cwd)
+            except Exception:
+                raise  # re-raise so outer excepts handle it
 
         except subprocess.TimeoutExpired:
             print(f"\n[ERROR] Evidence collection timed out after 30 minutes")
@@ -234,7 +309,7 @@ class EDITHOrchestrator:
             "message": message
         }
 
-    async def run_evidence_collection_automated(self, case_id, case_dir):
+    async def run_evidence_collection_automated(self, case_id, case_dir, evidence_path=None):
         """Run automated evidence collection without user prompts"""
         self.logger.info("Starting Automated Evidence Collection")
 
@@ -250,6 +325,31 @@ class EDITHOrchestrator:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         form_file = questions_dir / f"evidence_collection_form_{timestamp}.txt"
 
+        # Compute hashes from evidence file if provided
+        md5_hash = ""
+        sha256_hash = ""
+        evidence_size = "TBD"
+        evidence_label = "TBD"
+        if evidence_path and Path(evidence_path).is_file():
+            import hashlib
+            ep = Path(evidence_path)
+            evidence_label = ep.name
+            evidence_size = str(ep.stat().st_size) + " bytes"
+            md5_h = hashlib.md5()
+            sha256_h = hashlib.sha256()
+            try:
+                with open(ep, "rb") as _ef:
+                    for _chunk in iter(lambda: _ef.read(8 * 1024 * 1024), b""):
+                        md5_h.update(_chunk)
+                        sha256_h.update(_chunk)
+                md5_hash = md5_h.hexdigest()
+                sha256_hash = sha256_h.hexdigest()
+                print(f"[INFO] Evidence MD5:    {md5_hash}")
+                print(f"[INFO] Evidence SHA256: {sha256_hash}")
+            except Exception as _e:
+                self.logger.warning(f"Could not hash evidence file: {_e}")
+
+        # NOTE: Key names MUST match report_gen.py lookup keys (with parenthetical options).
         # Generate automated form
         automated_answers = {
             "Case Name / No": f"AUTO_{case_id}",
@@ -262,20 +362,23 @@ class EDITHOrchestrator:
             "Examiner's Name and Details": "EDITH-Automater System",
             "Digital Forensic Examiner": "EDITH-Automater",
             "Working Hours": "Automated",
-            "Device Type": "Unknown",
-            "Device Status at Seizure": "Unknown",
-            "Volatile Memory / RAM Collected": "No",
-            "Shut Down Type": "N/A",
-            "Is the suspected media encrypted": "Unknown",
-            "Hard Disk Handling": "Imaging",
+            "Device Type (Laptop/Desktop/Server/Other)": "Other",
+            "Device Status at Seizure (On/Off/Sleep)": "Off",
+            "Volatile Memory / RAM Collected (Yes/No)": "No",
+            "Shut Down Type (Normal/Power Pulled/Battery Removed/N/A)": "N/A",
+            "Is the suspected media encrypted (Yes/No)": "No",
+            "Hard Disk Handling (Seizure/Forensic Previewing/Imaging/Backup)": "Imaging",
             "Forensic Works Performed": "Data Acquisition, Data Extraction, Data Analysis",
-            "Is Hash Value Calculated": "Yes",
-            "Algorithm Used": "SHA1",
-            "Storage Master Copy": "TBD",
-            "Storage Working Copy": "TBD",
-            "Hard Disk Capacity": "TBD",
+            "Is Hash Value Calculated (Yes/No)": "Yes",
+            "Algorithm Used (MD5/SHA1/Others)": "SHA-256",
+            "MD5 hash value": md5_hash if md5_hash else "N/A",
+            "SHA1 hash value": sha256_hash if sha256_hash else "N/A",
+            "Storage Master Copy Make/Model/Size/Serial No": f"{evidence_label}///{evidence_size}",
+            "Storage Working Copy Make/Model/Size/Serial No": f"{evidence_label}///{evidence_size}",
+            "Victim Device Make/Model/Size/Serial No": f"Unknown///{evidence_size}",
+            "Hard Disk Capacity": evidence_size,
             "No. of HDD Used": "1",
-            "Is Witness Signature Taken": "No",
+            "Is Witness Signature Taken (Yes/No)": "No",
             "Witness Name": "N/A"
         }
 
@@ -326,9 +429,30 @@ class EDITHOrchestrator:
         # Ensure case structure exists
         self.ensure_case_structure(case_dir)
 
+        # M-5 FIX: validate evidence file before starting any tool
+        if not Path(evidence_path).exists():
+            print(f"[ERROR] Evidence file not found: {evidence_path}")
+            return {
+                "status": "error", "case_id": case_id, "case_dir": str(case_dir),
+                "message": f"Evidence file not found: {evidence_path}",
+                "evidence_path": evidence_path, "memory_path": memory_path,
+                "report_generation": None
+            }
+        if not Path(evidence_path).is_file():
+            print(f"[ERROR] Evidence path is not a file: {evidence_path}")
+            return {
+                "status": "error", "case_id": case_id, "case_dir": str(case_dir),
+                "message": f"Evidence path is not a file: {evidence_path}",
+                "evidence_path": evidence_path, "memory_path": memory_path,
+                "report_generation": None
+            }
+
+        # C-4 FIX: pre-initialize so return dict is always valid
+        status = "error"
+        message = "Unknown error in forensic analysis"
+
         try:
-            scripts_dir = self.project_root / "tools" / "Scripts"
-            original_cwd = os.getcwd()
+            scripts_dir = self.get_scripts_dir()
 
             print(f"\n[INFO] Starting automated forensic analysis...")
             print(f"[INFO] Evidence file: {evidence_path}")
@@ -336,19 +460,12 @@ class EDITHOrchestrator:
                 print(f"[INFO] Memory file: {memory_path}")
 
             try:
-                os.chdir(scripts_dir)
-
-                # Use the configured Python executable
                 python_executable = self.python_executable
 
-                print(f"[INFO] Executing forensic analysis workflow...")
-
-                # Prepare input for script_3.py to automate the prompts
-                input_data = f"{evidence_path}\n"
+                # Pass evidence/memory as explicit CLI args — no stdin dependency
+                cmd = [python_executable, str(scripts_dir / 'script_3.py'), '--evidence', evidence_path]
                 if memory_path:
-                    input_data += f"{memory_path}\n"
-                else:
-                    input_data += "\n"
+                    cmd += ['--memory', memory_path]
 
                 # Set environment variable to tell script_3.py to use existing case directory
                 env = self.get_subprocess_env()
@@ -356,39 +473,45 @@ class EDITHOrchestrator:
                 env['EDITH_CASE_DIR'] = case_dir
                 env['EDITH_CASE_ID'] = case_id
 
-                result = subprocess.run([
-                    python_executable, 'script_3.py'
-                ], input=input_data, text=True, env=env, capture_output=True, timeout=3600)
+                print(f"[INFO] Executing forensic analysis workflow...")
+                print(f"[INFO] Live output (large evidence files may take several minutes):")
+                print("-" * 60)
+                sys.stdout.flush()
 
-                if result.returncode == 0:
+                # Stream output line-by-line so progress is visible in real-time
+                returncode = None
+                try:
+                    with subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        encoding='utf-8',
+                        errors='replace',
+                        env=env,
+                        cwd=str(scripts_dir)
+                    ) as proc:
+                        for line in proc.stdout:
+                            print(f"  {line}", end='', flush=True)
+                        proc.wait(timeout=3600)
+                        returncode = proc.returncode
+                except subprocess.TimeoutExpired:
+                    raise
+
+                print("-" * 60)
+
+                if returncode == 0:
                     print(f"\n[SUCCESS] Forensic analysis completed successfully!")
                     print(f"[INFO] Results saved to: {case_dir}")
                     status = "success"
                     message = "Forensic analysis completed successfully"
                 else:
-                    print(f"\n[WARNING] Forensic analysis completed with warnings")
-                    print(f"[INFO] Check logs for details: {case_dir}")
+                    print(f"\n[WARNING] Forensic analysis completed with warnings (rc={returncode})")
+                    print(f"[INFO] Check output above and logs in: {case_dir}")
                     status = "warning"
-                    message = "Forensic analysis completed with warnings"
+                    message = f"Forensic analysis completed with warnings (rc={returncode})"
 
-                # Show output summary
-                if result.stdout:
-                    lines = result.stdout.split('\n')
-                    print(f"\n[OUTPUT] Analysis Summary (last 15 lines):")
-                    for line in lines[-15:]:
-                        if line.strip():
-                            print(f"  {line}")
-
-                # Show any errors
-                if result.stderr:
-                    print(f"\n[STDERR] Error details:")
-                    error_lines = result.stderr.split('\n')
-                    for line in error_lines[-5:]:
-                        if line.strip():
-                            print(f"  {line}")
-
-            finally:
-                os.chdir(original_cwd)
+            except Exception:
+                raise
 
         except subprocess.TimeoutExpired:
             print(f"\n[ERROR] Forensic analysis timed out after 1 hour")
@@ -434,29 +557,27 @@ class EDITHOrchestrator:
         print("EDITH-Automater: Interactive Forensic Analysis")
         print(f"{'='*80}")
 
+        # C-4 FIX: pre-initialize
+        status = "error"
+        message = "Unknown error in forensic analysis"
+
         try:
-            scripts_dir = self.project_root / "tools" / "Scripts"
-            original_cwd = os.getcwd()
+            scripts_dir = self.get_scripts_dir()
 
             try:
-                os.chdir(scripts_dir)
-
-                # Run script_3.py interactively
                 python_executable = self.python_executable
 
                 print(f"[INFO] Starting interactive forensic analysis...")
                 print(f"[INFO] Running script_3.py...")
 
-                # Create input for script_3.py
-                input_data = f"{evidence_path}\n"
+                # Pass evidence/memory as explicit CLI args — no stdin dependency
+                cmd = [python_executable, str(scripts_dir / 'script_3.py'), '--evidence', evidence_path]
                 if memory_path:
-                    input_data += f"{memory_path}\n"
-                else:
-                    input_data += "\n"
+                    cmd += ['--memory', memory_path]
 
-                result = subprocess.run([
-                    python_executable, 'script_3.py'
-                ], input=input_data, text=True, timeout=3600, env=self.get_subprocess_env())
+                result = subprocess.run(
+                    cmd, text=True, timeout=3600,
+                    env=self.get_subprocess_env(), cwd=str(scripts_dir))
 
                 if result.returncode == 0:
                     print(f"\n[SUCCESS] Forensic analysis completed successfully!")
@@ -467,8 +588,8 @@ class EDITHOrchestrator:
                     status = "warning"
                     message = "Forensic analysis completed with warnings"
 
-            finally:
-                os.chdir(original_cwd)
+            except Exception:
+                raise
 
         except subprocess.TimeoutExpired:
             print(f"\n[ERROR] Forensic analysis timed out after 1 hour")
@@ -499,45 +620,60 @@ class EDITHOrchestrator:
         print(f"Case Directory: {case_dir}")
         print(f"{'='*80}")
 
+        # C-4 FIX: pre-initialize
+        status = "error"
+        message = "Unknown error in report generation"
+
         try:
-            scripts_dir = self.project_root / "tools" / "Scripts"
-            original_cwd = os.getcwd()
+            scripts_dir = self.get_scripts_dir()
 
             print(f"\n[INFO] Starting report generation...")
             print(f"[INFO] Running report_gen.py...")
 
             try:
-                os.chdir(scripts_dir)
-
+                # C-8 FIX: use cwd= instead of os.chdir()
                 # Run report_gen.py
                 python_executable = self.python_executable
 
-                result = subprocess.run([
-                    python_executable, 'report_gen.py'
-                ], capture_output=True, text=True, timeout=600, env=self.get_subprocess_env())  # 10 minute timeout
+                # Pass the exact case directory so report_gen picks the right case
+                rep_env = self.get_subprocess_env()
+                rep_env['CASE_DIR'] = str(case_dir)
 
-                if result.returncode == 0:
+                print(f"[INFO] Live output:")
+                print("-" * 60)
+                sys.stdout.flush()
+
+                returncode = None
+                try:
+                    with subprocess.Popen(
+                        [python_executable, str(scripts_dir / 'report_gen.py')],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        encoding='utf-8',
+                        errors='replace',
+                        env=rep_env,
+                        cwd=str(scripts_dir)
+                    ) as proc:
+                        for line in proc.stdout:
+                            print(f"  {line}", end='', flush=True)
+                        proc.wait(timeout=600)
+                        returncode = proc.returncode
+                except subprocess.TimeoutExpired:
+                    raise
+
+                print("-" * 60)
+
+                if returncode == 0:
                     print(f"\n[SUCCESS] Report generation completed successfully!")
-                    
-                    # Show report generation summary from stdout
-                    if result.stdout:
-                        lines = result.stdout.split('\n')
-                        print(f"\n[REPORT SUMMARY]:")
-                        for line in lines:
-                            if line.strip() and ("generated" in line.lower() or "pdf" in line.lower() or "success" in line.lower()):
-                                print(f"  {line.strip()}")
-                    
                     status = "success"
                     message = "Report generation completed successfully"
                 else:
-                    print(f"\n[WARNING] Report generation completed with warnings")
-                    if result.stderr:
-                        print(f"[STDERR] {result.stderr}")
+                    print(f"\n[WARNING] Report generation completed with warnings (rc={returncode})")
                     status = "warning"
-                    message = "Report generation completed with warnings"
+                    message = f"Report generation completed with warnings (rc={returncode})"
 
-            finally:
-                os.chdir(original_cwd)
+            except Exception:
+                raise
 
         except subprocess.TimeoutExpired:
             print(f"\n[ERROR] Report generation timed out after 10 minutes")
@@ -664,7 +800,7 @@ class EDITHOrchestrator:
             evidence_result = await self.run_evidence_collection_interactive()
         else:
             case_dir, case_id = self.create_new_case()
-            evidence_result = await self.run_evidence_collection_automated(case_id, case_dir)
+            evidence_result = await self.run_evidence_collection_automated(case_id, case_dir, evidence_path=evidence_path)
 
         if evidence_result["status"] not in ["success", "warning"]:
             print(f"[ERROR] Evidence collection failed, stopping workflow")
@@ -785,115 +921,106 @@ class EDITHOrchestrator:
         return result_dict
 
     async def run_simultaneous_workflow(self, evidence_path, memory_path=None):
-        """Run evidence collection and forensic analysis simultaneously"""
+        """Run evidence collection questionnaire first (interactive), then forensic analysis."""
         self.logger.info("Starting Simultaneous Integrated Workflow")
 
         print(f"\n{'='*80}")
         print("EDITH-Automater: SIMULTANEOUS INTEGRATED WORKFLOW")
-        print("Evidence Collection + Forensic Analysis Running in Parallel")
+        print("Step 1: Interactive Evidence Collection  ->  Step 2: Forensic Analysis")
         print(f"{'='*80}")
 
-        # Create case for simultaneous execution
-        case_dir, case_id = self.create_new_case()
+        # ------------------------------------------------------------------ #
+        # STEP 1 — Ask questions interactively (blocks until user is done)   #
+        # ------------------------------------------------------------------ #
+        print(f"\n[STEP 1/2] Evidence Collection Questionnaire")
+        print(f"{'─'*60}")
 
-        print(f"\n[INFO] Case Created: {case_id}")
-        print(f"[INFO] Case Directory: {case_dir}")
+        evidence_result = await self.run_evidence_collection_interactive(evidence_path=evidence_path)
 
-        # Run both workflows simultaneously
-        print(f"\n[INFO] Starting parallel execution...")
-        print(f"[INFO] - Evidence Collection (automated)")
-        print(f"[INFO] - Forensic Analysis (automated)")
-
-        # Create tasks for parallel execution
-        evidence_task = asyncio.create_task(
-            self.run_evidence_collection_automated(case_id, case_dir),
-            name="evidence_collection"
-        )
-
-        forensic_task = asyncio.create_task(
-            self.run_forensic_analysis_automated(case_id, case_dir, evidence_path, memory_path),
-            name="forensic_analysis"
-        )
-
-        # Wait for both tasks to complete
-        try:
-            evidence_result, forensic_result = await asyncio.gather(
-                evidence_task,
-                forensic_task,
-                return_exceptions=True
-            )
-
-            print(f"\n{'='*80}")
-            print("PARALLEL EXECUTION RESULTS")
-            print(f"{'='*80}")
-
-            # Check evidence collection result
-            if isinstance(evidence_result, Exception):
-                print(f"[ERROR] Evidence Collection failed: {evidence_result}")
-                evidence_status = "failed"
-            else:
-                print(f"[SUCCESS] Evidence Collection: {evidence_result['status']}")
-                evidence_status = evidence_result['status']
-
-            # Check forensic analysis result
-            if isinstance(forensic_result, Exception):
-                print(f"[ERROR] Forensic Analysis failed: {forensic_result}")
-                forensic_status = "failed"
-            else:
-                print(f"[SUCCESS] Forensic Analysis: {forensic_result['status']}")
-                forensic_status = forensic_result['status']
-
-            # Overall status
-            if evidence_status == "success" and forensic_status == "success":
-                overall_status = "success"
-                print(f"\n[SUCCESS] Both workflows completed successfully!")
-            elif "success" in [evidence_status, forensic_status]:
-                overall_status = "partial_success"
-                print(f"\n[PARTIAL] One or both workflows completed with issues")
-            else:
-                overall_status = "failed"
-                print(f"\n[ERROR] Both workflows failed")
-
-            # Run report generation if any workflow was successful
-            report_result = None
-            if overall_status in ["success", "partial_success"]:
-                print(f"\n[INFO] Starting automatic report generation...")
-                try:
-                    report_result = await self.run_report_generation(case_id, case_dir)
-                    if report_result["status"] == "success":
-                        print(f"[SUCCESS] Report generation completed successfully!")
-                    elif report_result["status"] == "warning":
-                        print(f"[WARNING] Report generation completed with warnings")
-                    else:
-                        print(f"[ERROR] Report generation failed: {report_result.get('message', 'Unknown error')}")
-                except Exception as e:
-                    print(f"[ERROR] Report generation failed: {e}")
-                    report_result = {"status": "error", "message": str(e)}
-
-            print(f"[INFO] All results saved to: {case_dir}")
-            if report_result and report_result["status"] == "success":
-                print(f"[INFO] Reports and PDFs generated automatically!")
-
-            self.logger.info(f"Simultaneous workflow completed for case: {case_id} with status: {overall_status}")
-
-            return {
-                "status": overall_status,
-                "case_id": case_id,
-                "case_dir": case_dir,
-                "evidence_collection": evidence_result if not isinstance(evidence_result, Exception) else str(evidence_result),
-                "forensic_analysis": forensic_result if not isinstance(forensic_result, Exception) else str(forensic_result),
-                "report_generation": report_result
-            }
-
-        except Exception as e:
-            print(f"\n[ERROR] Parallel execution failed: {e}")
-            self.logger.error(f"Simultaneous workflow failed for case: {case_id}: {e}")
+        if isinstance(evidence_result, Exception) or evidence_result.get("status") not in ("success", "completed"):
+            err = evidence_result if isinstance(evidence_result, Exception) else evidence_result.get("message", "unknown")
+            print(f"[ERROR] Evidence collection failed: {err}")
             return {
                 "status": "failed",
-                "case_id": case_id,
-                "case_dir": case_dir,
-                "error": str(e)
+                "case_id": None,
+                "case_dir": None,
+                "evidence_collection": str(err),
+                "forensic_analysis": None,
+                "report_generation": None,
             }
+
+        # q_script.py creates its own case directory — retrieve it
+        case_id  = evidence_result.get("case_id")
+        case_dir = evidence_result.get("case_dir")
+
+        print(f"\n[INFO] Evidence collection complete — Case: {case_id}")
+        print(f"[INFO] Case Directory: {case_dir}")
+
+        # ------------------------------------------------------------------ #
+        # STEP 2 — Run forensic analysis (uses the case created in step 1)  #
+        # ------------------------------------------------------------------ #
+        print(f"\n[STEP 2/2] Forensic Analysis")
+        print(f"{'─'*60}")
+
+        forensic_result = None
+        forensic_status = "skipped"
+        try:
+            forensic_result = await self.run_forensic_analysis_automated(case_id, case_dir, evidence_path, memory_path)
+            if isinstance(forensic_result, Exception):
+                print(f"[ERROR] Forensic analysis failed: {forensic_result}")
+                forensic_status = "failed"
+            else:
+                forensic_status = forensic_result.get("status", "unknown")
+                print(f"[SUCCESS] Forensic Analysis: {forensic_status}")
+        except Exception as e:
+            print(f"[ERROR] Forensic analysis failed: {e}")
+            forensic_result = {"status": "error", "message": str(e)}
+            forensic_status = "failed"
+
+        # ------------------------------------------------------------------ #
+        # Overall status + report generation                                 #
+        # ------------------------------------------------------------------ #
+        evidence_status = evidence_result.get("status", "unknown")
+
+        if evidence_status in ("success", "completed") and forensic_status == "success":
+            overall_status = "success"
+            print(f"\n[SUCCESS] Both steps completed successfully!")
+        elif evidence_status in ("success", "completed") or forensic_status == "success":
+            overall_status = "partial_success"
+            print(f"\n[PARTIAL] Workflow completed with some issues")
+        else:
+            overall_status = "failed"
+            print(f"\n[ERROR] Workflow failed")
+
+        report_result = None
+        if overall_status in ("success", "partial_success") and case_id and case_dir:
+            print(f"\n[INFO] Starting automatic report generation...")
+            try:
+                report_result = await self.run_report_generation(case_id, case_dir)
+                if report_result["status"] == "success":
+                    print(f"[SUCCESS] Report generation completed successfully!")
+                elif report_result["status"] == "warning":
+                    print(f"[WARNING] Report generation completed with warnings")
+                else:
+                    print(f"[ERROR] Report generation failed: {report_result.get('message', 'Unknown error')}")
+            except Exception as e:
+                print(f"[ERROR] Report generation failed: {e}")
+                report_result = {"status": "error", "message": str(e)}
+
+        print(f"\n[INFO] All results saved to: {case_dir}")
+        if report_result and report_result.get("status") == "success":
+            print(f"[INFO] Reports and PDFs generated automatically!")
+
+        self.logger.info(f"Simultaneous workflow completed for case: {case_id} with status: {overall_status}")
+
+        return {
+            "status": overall_status,
+            "case_id": case_id,
+            "case_dir": case_dir,
+            "evidence_collection": evidence_result,
+            "forensic_analysis": forensic_result if not isinstance(forensic_result, Exception) else str(forensic_result),
+            "report_generation": report_result,
+        }
 
     def print_help(self):
         """Print help information"""
