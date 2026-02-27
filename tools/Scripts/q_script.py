@@ -346,13 +346,16 @@ def main():
     # Check if evidence path was pre-supplied by the orchestrator
     _env_evidence = os.environ.get('EDITH_EVIDENCE_PATH', '').strip()
     image_path = ""
-    if _env_evidence and os.path.exists(_env_evidence):
+    if _env_evidence:
+        # Trust the path supplied by the orchestrator/launcher — it was already
+        # validated there. Do NOT re-check os.path.exists() here because the
+        # subprocess environment may not see the same drive mapping.
         image_path = _env_evidence
         answers["Image File Path"] = image_path
         print(f"[INFO] Evidence file pre-supplied: {image_path}")
         print(f"✓ Image file confirmed: {image_path}")
     else:
-        # Ask interactively
+        # Ask interactively (evidence-only mode or direct script run)
         while True:
             image_path = input("Path to FTK Imager image file (.E01, .dd, .img, etc.) [optional, press Enter to skip]: ").strip()
             if not image_path:

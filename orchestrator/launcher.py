@@ -47,6 +47,21 @@ def _ask(prompt, required=True, default=None):
         print("  [!] This field is required.")
 
 
+def _ask_evidence_path():
+    """Ask for an evidence file path and validate it exists before continuing."""
+    while True:
+        path = input("Path to evidence file (.E01 / .dd / .raw): ").strip()
+        if not path:
+            print("  [!] Evidence file path is required.")
+            continue
+        if os.path.isfile(path):
+            return path
+        # File not found — give a helpful message and re-ask
+        print(f"  [!] File not found: {path}")
+        print("      Check the path, make sure the drive is connected, and try again.")
+        print("      (Example: D:\\evidence.E01  or  E:\\case1.dd)")
+
+
 def _interactive_menu():
     """
     Full interactive menu shown when the exe is double-clicked.
@@ -73,14 +88,14 @@ def _interactive_menu():
         sys.exit(0)
 
     elif choice == "1":
-        evidence = _ask("Path to evidence file (.E01 / .dd / .raw)")
+        evidence = _ask_evidence_path()
         memory   = _ask("Path to memory dump (optional, press Enter to skip)", required=False)
         sys.argv = [sys.argv[0], "simultaneous", "--evidence", evidence]
         if memory:
             sys.argv += ["--memory", memory]
 
     elif choice == "2":
-        evidence = _ask("Path to evidence file (.E01 / .dd / .raw)")
+        evidence = _ask_evidence_path()
         memory   = _ask("Path to memory dump (optional, press Enter to skip)", required=False)
         sys.argv = [sys.argv[0], "sequential", "--evidence", evidence]
         if memory:
@@ -90,7 +105,7 @@ def _interactive_menu():
         sys.argv = [sys.argv[0], "evidence-only"]
 
     elif choice == "4":
-        evidence = _ask("Path to evidence file (.E01 / .dd / .raw)")
+        evidence = _ask_evidence_path()
         memory   = _ask("Path to memory dump (optional, press Enter to skip)", required=False)
         case_id  = _ask("Case ID to attach results to (leave blank to create new)", required=False)
         sys.argv = [sys.argv[0], "forensic-auto", "--evidence", evidence]
