@@ -961,6 +961,23 @@ class EDITHOrchestrator:
         print(f"\n[INFO] Evidence collection complete — Case: {case_id}")
         print(f"[INFO] Case Directory: {case_dir}")
 
+        # If q_script saved a memory dump path in .case_info, use it now
+        # (this happens when the user answers "Yes" to the RAM-collected question)
+        if not memory_path and case_dir:
+            _case_info = Path(case_dir) / ".case_info"
+            if _case_info.exists():
+                try:
+                    with open(_case_info, 'r') as _ci:
+                        for _line in _ci:
+                            if _line.startswith('MEMORY_PATH='):
+                                _mp = _line.strip().split('=', 1)[1]
+                                if _mp and Path(_mp).exists():
+                                    memory_path = _mp
+                                    print(f"[INFO] Memory dump path from questionnaire: {memory_path}")
+                                break
+                except Exception:
+                    pass
+
         # ------------------------------------------------------------------ #
         # STEP 2 — Run forensic analysis (uses the case created in step 1)  #
         # ------------------------------------------------------------------ #

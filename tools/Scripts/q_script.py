@@ -60,6 +60,10 @@ def save_case_info(case_dir, case_id, answers=None):
         if answers and "Authorized Officer" in answers:
             f.write(f"OFFICER_NAME={answers['Authorized Officer']}\n")
 
+        # Add memory dump path if collected (picked up by Volatility via orchestrator)
+        if answers and "Memory Dump File Path" in answers:
+            f.write(f"MEMORY_PATH={answers['Memory Dump File Path']}\n")
+
     print(f" Case info saved: {case_info_file}")
     return case_info_file
 
@@ -218,6 +222,21 @@ def main():
     print("="*50)
 
     ask_yes_no("Was Volatile Memory / RAM collected?", "Volatile Memory / RAM Collected (Yes/No)")
+
+    if answers.get("Volatile Memory / RAM Collected (Yes/No)") == "Yes":
+        print("\nVolatility analysis requires the memory dump file.")
+        while True:
+            mem_path = input("Path to memory dump file (.mem/.dmp/.vmem/.raw) [press Enter to skip]: ").strip()
+            if not mem_path:
+                print("[INFO] No memory dump path provided. Volatility analysis will be skipped.")
+                break
+            elif os.path.exists(mem_path):
+                answers["Memory Dump File Path"] = mem_path
+                print(f"\u2713 Memory dump confirmed: {mem_path}")
+                break
+            else:
+                print(f"\u2717 File not found: {mem_path}")
+                print("  Please check the path and try again, or press Enter to skip.")
 
     ask_choice(
         "How was the device shut down?",

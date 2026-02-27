@@ -86,7 +86,7 @@ def setup_results_structure(case_id=None):
 def run_workflow(evidence_path, memory_file=None):
     print("=" * 80)
     print("EDITH-Automater Unified Forensic Workflow (Minimal Prompts)")
-    print("HashDeep -> Autopsy -> Volatility -> ExifTool -> BulkExtractor -> HashDeep")
+    print("HashDeep -> ExifTool -> Autopsy -> Volatility -> BulkExtractor -> HashDeep")
     print("=" * 80)
     # M-5 FIX: Validate evidence file before starting any tool
     if not os.path.exists(evidence_path):
@@ -125,7 +125,70 @@ def run_workflow(evidence_path, memory_file=None):
     # 1. Run HashDeep (baseline hashing)
     print("\n=== Running HashDeep (Baseline Hashing) ===")
     hash_results = hashdeep.main(evidence_path, output_path=subdirs['hashdeep'])
-    # 2. Run Autopsy analysis
+
+    # 2. Run ExifTool Analysis (image container metadata — run before deep carving)
+    print("\n=== Running ExifTool Analysis ===")
+    try:
+        # Use the enhanced ExifTool automation for .E01 files
+        case_id_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Check if the evidence file is an .E01 file
+        evidence_ext = os.path.splitext(evidence_path.lower())[1]
+        if evidence_ext in ['.e01', '.ex01', '.l01']:
+            print(f"[+] Detected forensic image format: {evidence_ext}")
+            print(f"[+] Processing {os.path.basename(evidence_path)} with enhanced ExifTool...")
+
+            # Use the enhanced ExifTool with direct .E01 processing
+            exif_tool = exiftool_auto.AutomatedExifTool(
+                case_id=f"CASE_{case_id_timestamp}",
+                show_prompt=False,
+                custom_result_dir=subdirs['exiftool']
+            )
+
+            # Process the .E01 file directly
+            exif_results = exif_tool.process_e01_file_directly(evidence_path)
+
+            if exif_results and exif_results.get("status") == "SUCCESS":
+                print(f"[+] ExifTool E01 analysis completed successfully!")
+                print(f"    [+] Metadata entries extracted: {exif_results.get('metadata_entries', 0)}")
+                print(f"    [+] Processing time: {exif_results.get('processing_time', 0):.2f} seconds")
+                print(f"    [+] Results saved in: {os.path.basename(exif_results.get('result_directory', ''))}")
+            else:
+                print(f"[-] ExifTool E01 analysis completed with warnings")
+                if exif_results and exif_results.get("error"):
+                    print(f"    [WARNING] {exif_results.get('error')}")
+        else:
+            print(f"[+] Processing evidence file directly: {os.path.basename(evidence_path)}")
+            # Process the evidence file directly (not just the evidence directory)
+            exif_tool = exiftool_auto.AutomatedExifTool(
+                case_id=f"CASE_{case_id_timestamp}",
+                show_prompt=False,
+                custom_result_dir=subdirs['exiftool']
+            )
+            # Use process_single_file to target the actual evidence file
+            if os.path.isfile(evidence_path):
+                exif_results = exif_tool.process_single_file(evidence_path)
+                if exif_results and exif_results.get("status") == "SUCCESS":
+                    print(f"[+] ExifTool analysis completed. Metadata entries: {exif_results.get('metadata_entries', 0)}")
+                else:
+                    # Fallback to directory scan if single-file fails
+                    exif_results = exif_tool.process_all_evidence()
+                    if exif_results and exif_results.get("status") in ["SUCCESS", "NO_FILES"]:
+                        print(f"[+] ExifTool analysis completed. Files processed: {exif_results.get('files_processed', 0)}")
+                    else:
+                        print("[-] ExifTool analysis completed with warnings")
+            else:
+                exif_results = exif_tool.process_all_evidence()
+                if exif_results and exif_results.get("status") in ["SUCCESS", "NO_FILES"]:
+                    print(f"[+] ExifTool analysis completed. Files processed: {exif_results.get('files_processed', 0)}")
+                else:
+                    print("[-] ExifTool analysis completed with warnings")
+
+    except Exception as e:
+        print(f"[-] ExifTool analysis failed: {e}")
+        print("    [*] Continuing workflow...")
+
+    # 3. Run Autopsy analysis
     print("\n=== Running Autopsy Analysis ===")
     try:
         # Run autopsy with custom output directory
@@ -142,7 +205,7 @@ def run_workflow(evidence_path, memory_file=None):
         except Exception as e2:
             print(f"    [-] Autopsy fallback also failed: {e2}")
 
-    # 3. Run Memory Analysis (if memory file provided)
+    # 4. Run Memory Analysis (if memory file provided)
     memory_results = None
     if memory_file:
         print(f"\n=== Memory Analysis Check ===")
@@ -189,68 +252,6 @@ def run_workflow(evidence_path, memory_file=None):
         except Exception as _ve:
             print(f"    [WARN] Could not write volatility status file: {_ve}")
 
-    # 4. Run ExifTool Analysis
-    print("\n=== Running ExifTool Analysis ===")
-    try:
-        # Use the enhanced ExifTool automation for .E01 files
-        case_id_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Check if the evidence file is an .E01 file
-        evidence_ext = os.path.splitext(evidence_path.lower())[1]
-        if evidence_ext in ['.e01', '.ex01', '.l01']:
-            print(f"[+] Detected forensic image format: {evidence_ext}")
-            print(f"[+] Processing {os.path.basename(evidence_path)} with enhanced ExifTool...")
-            
-            # Use the enhanced ExifTool with direct .E01 processing
-            exif_tool = exiftool_auto.AutomatedExifTool(
-                case_id=f"CASE_{case_id_timestamp}",
-                show_prompt=False,
-                custom_result_dir=subdirs['exiftool']
-            )
-            
-            # Process the .E01 file directly
-            exif_results = exif_tool.process_e01_file_directly(evidence_path)
-            
-            if exif_results and exif_results.get("status") == "SUCCESS":
-                print(f"[+] ExifTool E01 analysis completed successfully!")
-                print(f"    [+] Metadata entries extracted: {exif_results.get('metadata_entries', 0)}")
-                print(f"    [+] Processing time: {exif_results.get('processing_time', 0):.2f} seconds")
-                print(f"    [+] Results saved in: {os.path.basename(exif_results.get('result_directory', ''))}")
-            else:
-                print(f"[-] ExifTool E01 analysis completed with warnings")
-                if exif_results and exif_results.get("error"):
-                    print(f"    [WARNING] {exif_results.get('error')}")
-        else:
-            print(f"[+] Processing evidence file directly: {os.path.basename(evidence_path)}")
-            # Process the evidence file directly (not just the evidence directory)
-            exif_tool = exiftool_auto.AutomatedExifTool(
-                case_id=f"CASE_{case_id_timestamp}",
-                show_prompt=False,
-                custom_result_dir=subdirs['exiftool']
-            )
-            # Use process_single_file to target the actual evidence file
-            if os.path.isfile(evidence_path):
-                exif_results = exif_tool.process_single_file(evidence_path)
-                if exif_results and exif_results.get("status") == "SUCCESS":
-                    print(f"[+] ExifTool analysis completed. Metadata entries: {exif_results.get('metadata_entries', 0)}")
-                else:
-                    # Fallback to directory scan if single-file fails
-                    exif_results = exif_tool.process_all_evidence()
-                    if exif_results and exif_results.get("status") in ["SUCCESS", "NO_FILES"]:
-                        print(f"[+] ExifTool analysis completed. Files processed: {exif_results.get('files_processed', 0)}")
-                    else:
-                        print("[-] ExifTool analysis completed with warnings")
-            else:
-                exif_results = exif_tool.process_all_evidence()
-                if exif_results and exif_results.get("status") in ["SUCCESS", "NO_FILES"]:
-                    print(f"[+] ExifTool analysis completed. Files processed: {exif_results.get('files_processed', 0)}")
-                else:
-                    print("[-] ExifTool analysis completed with warnings")
-                
-    except Exception as e:
-        print(f"[-] ExifTool analysis failed: {e}")
-        print("    [*] Continuing workflow...")
-
     # 5. Run Bulk-Extractor Analysis
     print("\n=== Running Bulk-Extractor Analysis ===")
     
@@ -291,8 +292,8 @@ def run_workflow(evidence_path, memory_file=None):
         # Verify the script exists
         if not os.path.exists(bulk_extractor_script):
             print(f"    [ERROR] Bulk extractor script not found at: {bulk_extractor_script}")
-            print("    [ERROR] Bulk-Extractor analysis failed!")
-            return
+            print("    [WARNING] Bulk-Extractor skipped — continuing with rest of workflow.")
+            raise RuntimeError("bulk_extractor_script not found")
         else:
             print(f"    [OK] Found bulk extractor script at: {bulk_extractor_script}")
         
@@ -338,8 +339,8 @@ def run_workflow(evidence_path, memory_file=None):
             # Verify Python executable exists
             if not os.path.exists(python_executable):
                 print(f"    [ERROR] Python executable not found at: {python_executable}")
-                print("    [ERROR] Bulk-Extractor analysis failed!")
-                return
+                print("    [WARNING] Bulk-Extractor skipped — continuing with rest of workflow.")
+                raise RuntimeError("python_executable not found for bulk extractor")
             else:
                 print(f"    [OK] Python executable found: {python_executable}")
             
@@ -491,12 +492,12 @@ def run_workflow(evidence_path, memory_file=None):
 
     print("\n Full forensic workflow completed successfully!")
     print("   - Baseline hashes created")
+    print("   - ExifTool image container metadata extracted")
     print("   - Autopsy analysis done")
     if memory_file:
         print("   - Memory analysis completed")
-    print("   - ExifTool metadata extracted")
     print("   - Bulk-Extractor data extraction completed")
-    print("   - Final verification passed")
+    print("   - Final HashDeep verification passed")
     print("   - Final reports generated")
 
     # Final cleanup: Remove any stray Evidence directories
