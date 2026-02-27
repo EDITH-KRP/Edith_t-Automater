@@ -51,7 +51,15 @@ def setup_results_structure(case_id=None):
         if case_id is None:
             case_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        base_results_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "Results")
+        # Prefer orchestrator-injected base (needed for frozen exe so Results
+        # land next to the exe rather than in the _MEIPASS temp folder)
+        env_base = os.environ.get('EDITH_RESULTS_BASE', '').strip()
+        if env_base:
+            base_results_dir = env_base
+        else:
+            base_results_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "Results"
+            )
         case_results_dir = os.path.join(base_results_dir, f"CASE_{case_id}")
 
     # Define tool-specific subdirectories

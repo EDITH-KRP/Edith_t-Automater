@@ -115,6 +115,11 @@ class EDITHOrchestrator:
             bundle_str  = str(self._bundle_dir)
             env['PYTHONPATH'] = f"{bundle_str};{existing_pp}" if existing_pp else bundle_str
 
+        # Always tell every subprocess where the real Results folder is.
+        # Without this, frozen subprocesses derive the path from __file__ which
+        # points to the _MEIPASS temp dir and gets deleted on exit.
+        env['EDITH_RESULTS_BASE'] = str(self.results_dir)
+
         return env
 
     def get_scripts_dir(self) -> Path:

@@ -5,10 +5,16 @@ def create_case_directory():
     """
     Create a new case directory structure for the forensic workflow
     """
-    # Get the base directory (two levels up from Scripts folder)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    base_dir = os.path.dirname(os.path.dirname(script_dir))
-    results_base = os.path.join(base_dir, "Results")
+    # Prefer the explicit base path injected by the orchestrator (required when
+    # running as a PyInstaller frozen exe so Results end up next to the exe,
+    # not inside the _MEIPASS temp folder).
+    env_base = os.environ.get('EDITH_RESULTS_BASE', '').strip()
+    if env_base:
+        results_base = env_base
+    else:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = os.path.dirname(os.path.dirname(script_dir))
+        results_base = os.path.join(base_dir, "Results")
 
     # Create case ID with timestamp
     case_id = datetime.now().strftime("CASE_%Y%m%d_%H%M%S")
