@@ -32,7 +32,7 @@ def create_case_directory():
 
     return case_dir, case_id, subdirs
 
-def save_case_info(case_dir, case_id):
+def save_case_info(case_dir, case_id, answers=None):
     """
     Save case information for script_3.py to use
     """
@@ -41,6 +41,18 @@ def save_case_info(case_dir, case_id):
         f.write(f"CASE_ID={case_id}\n")
         f.write(f"CASE_DIR={case_dir}\n")
         f.write(f"CREATED={datetime.now().isoformat()}\n")
+        
+        # Add image path if available
+        if answers and "Image File Path" in answers:
+            f.write(f"IMAGE_PATH={answers['Image File Path']}\n")
+        
+        # Add case name if available
+        if answers and "Case Name / No" in answers:
+            f.write(f"CASE_NAME={answers['Case Name / No']}\n")
+        
+        # Add officer name if available
+        if answers and "Authorized Officer" in answers:
+            f.write(f"OFFICER_NAME={answers['Authorized Officer']}\n")
 
     print(f" Case info saved: {case_info_file}")
     return case_info_file
@@ -303,6 +315,25 @@ def main():
 
     # Storage Details
     print("\n" + "="*50)
+    print("FORENSIC IMAGE FILE")
+    print("="*50)
+    
+    # Ask for FTK image file
+    image_path = ""
+    while True:
+        image_path = input("Path to FTK Imager image file (.E01, .dd, .img, etc.) [optional, press Enter to skip]: ").strip()
+        if not image_path:
+            print("Skipping FTK image file (optional)")
+            break
+        elif os.path.exists(image_path):
+            answers["Image File Path"] = image_path
+            print(f"✓ Image file confirmed: {image_path}")
+            break
+        else:
+            print(f"✗ File not found. Please check the path and try again or press Enter to skip.")
+    
+    # Storage Details
+    print("\n" + "="*50)
     print("STORAGE DETAILS")
     print("="*50)
     print("Format: Make/Model/Size/Serial Number")
@@ -375,7 +406,7 @@ def main():
         f.write(f"Case directory: {case_dir}\n")
 
     # Save case info for script_3.py
-    save_case_info(case_dir, case_id)
+    save_case_info(case_dir, case_id, answers)
 
     print(f"\n Evidence Collection Form saved!")
     print(f" Location: {full_path}")

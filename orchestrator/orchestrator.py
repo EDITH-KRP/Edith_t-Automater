@@ -14,10 +14,19 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
+
 # Add project paths
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.append(str(PROJECT_ROOT))
 sys.path.append(str(PROJECT_ROOT / "tools"))
+
+# Import FTK module
+try:
+    from ftk_metadata import integrate_ftk_with_case
+    FTK_AVAILABLE = True
+except ImportError:
+    FTK_AVAILABLE = False
 
 class EDITHOrchestrator:
     """Main orchestrator class for EDITH-Automater"""
@@ -547,13 +556,104 @@ class EDITHOrchestrator:
             "message": message
         }
 
+    async def process_ftk_image(self, image_path, case_dir, case_id, case_name="", officer_name=""):
+        """
+        Process FTK Imager forensic image and extract metadata
+        
+        Args:
+            image_path: Path to FTK image file (.E01, .dd, etc.)
+            case_dir: Case directory path
+            case_id: Case ID
+            case_name: Case name
+            officer_name: Officer name
+        
+        Returns:
+            Dictionary with processing results
+        """
+        
+        if not FTK_AVAILABLE:
+            self.logger.error("FTK module not available. Install with: pip install libewf-python pytsk3")
+            return {
+                "status": "error",
+                "case_id": case_id,
+                "case_dir": case_dir,
+                "message": "FTK module not available"
+            }
+        
+        if not Path(image_path).exists():
+            self.logger.error(f"Image file not found: {image_path}")
+            return {
+                "status": "error",
+                "case_id": case_id,
+                "case_dir": case_dir,
+                "message": f"Image file not found: {image_path}"
+            }
+        
+        try:
+            self.logger.info(f"Processing FTK image: {image_path}")
+            print(f"\n[FTK IMAGE PROCESSING] Analyzing: {Path(image_path).name}")
+            
+            # Call FTK integration
+            result = integrate_ftk_with_case(
+                case_dir=case_dir,
+                image_path=image_path,
+                case_id=case_id,
+                case_name=case_name,
+                officer_name=officer_name
+            )
+            
+            if result['success']:
+                self.logger.info("FTK image processing completed successfully")
+                
+                # Extract key information
+                image_metadata = result.get('image_metadata', {})
+                ftk_form_path = result.get('ftk_form_path', '')
+                
+                print(f"✓ Image processed successfully")
+                print(f"  File: {image_metadata.get('file_name', 'N/A')}")
+                print(f"  Format: {image_metadata.get('format', 'N/A')}")
+                print(f"  Size: {image_metadata.get('file_size_gb', 0)} GB")
+                print(f"  MD5: {image_metadata.get('md5', 'N/A')}")
+                print(f"  Report: {Path(ftk_form_path).name}")
+                
+                return {
+                    "status": "success",
+                    "case_id": case_id,
+                    "case_dir": case_dir,
+                    "image_path": image_path,
+                    "image_metadata": image_metadata,
+                    "ftk_form_path": ftk_form_path
+                }
+            else:
+                error_msg = result.get('error', 'Unknown error during FTK processing')
+                self.logger.error(f"FTK processing failed: {error_msg}")
+                print(f"✗ FTK processing failed: {error_msg}")
+                
+                return {
+                    "status": "error",
+                    "case_id": case_id,
+                    "case_dir": case_dir,
+                    "message": error_msg
+                }
+        
+        except Exception as e:
+            self.logger.error(f"Error processing FTK image: {e}")
+            print(f"✗ Error processing FTK image: {e}")
+            
+            return {
+                "status": "error",
+                "case_id": case_id,
+                "case_dir": case_dir,
+                "message": str(e)
+            }
+
     async def run_sequential_workflow(self, evidence_path, memory_path=None, interactive=True):
-        """Run evidence collection followed by forensic analysis sequentially"""
+        """Run evidence collection followed by FTK image processing and forensic analysis sequentially"""
         self.logger.info("Starting Sequential Workflow")
 
         print(f"\n{'='*80}")
         print("EDITH-Automater: SEQUENTIAL WORKFLOW")
-        print("Evidence Collection → Forensic Analysis")
+        print("Evidence Collection → FTK Image Processing → Forensic Analysis")
         print(f"{'='*80}")
 
         # Step 1: Evidence Collection
@@ -572,9 +672,57 @@ class EDITHOrchestrator:
 
         case_id = evidence_result["case_id"]
         case_dir = evidence_result["case_dir"]
-
-        # Step 2: Forensic Analysis
-        print(f"\n[STEP 2] Forensic Analysis")
+        image_path = None
+        ftk_result = None
+        
+        # Step 2: FTK Image Processing (if image file configured)
+        # Read image path from case info
+        case_info_file = Path(case_dir) / ".case_info"
+        if case_info_file.exists():
+            try:
+                with open(case_info_file, 'r') as f:
+                    for line in f:
+                        if 'IMAGE_PATH=' in line:
+                            image_path = line.split('=', 1)[1].strip()
+            except Exception as e:
+                self.logger.debug(f"Could not read image path from case info: {e}")
+        
+        if image_path and Path(image_path).exists():
+            print(f"\n[STEP 2] FTK Image Processing")
+            print("-" * 50)
+            
+            # Extract case info for FTK processing
+            case_name = ""
+            officer_name = ""
+            case_info_fields = {}
+            
+            if case_info_file.exists():
+                try:
+                    with open(case_info_file, 'r') as f:
+                        for line in f:
+                            if '=' in line:
+                                key, value = line.strip().split('=', 1)
+                                case_info_fields[key] = value
+                    case_name = case_info_fields.get('CASE_NAME', 'Investigation')
+                    officer_name = case_info_fields.get('OFFICER_NAME', 'Officer')
+                except Exception as e:
+                    self.logger.debug(f"Could not extract case info: {e}")
+            
+            ftk_result = await self.process_ftk_image(
+                image_path=image_path,
+                case_dir=case_dir,
+                case_id=case_id,
+                case_name=case_name,
+                officer_name=officer_name
+            )
+            
+            step_number = 3
+        else:
+            step_number = 2
+            ftk_result = None
+        
+        # Step N: Forensic Analysis
+        print(f"\n[STEP {step_number}] Forensic Analysis")
         print("-" * 50)
 
         if case_id and case_dir:
@@ -592,16 +740,25 @@ class EDITHOrchestrator:
         print("SEQUENTIAL WORKFLOW RESULTS")
         print(f"{'='*80}")
         print(f"[STEP 1] Evidence Collection: {evidence_result['status']}")
-        print(f"[STEP 2] Forensic Analysis: {forensic_result['status']}")
+        if ftk_result:
+            print(f"[STEP 2] FTK Image Processing: {ftk_result['status']}")
+            print(f"[STEP 3] Forensic Analysis: {forensic_result['status']}")
+        else:
+            print(f"[STEP 2] Forensic Analysis: {forensic_result['status']}")
         
         # Show report generation status if available
         if forensic_result.get('report_generation'):
             print(f"[STEP 3] Report Generation: {forensic_result['report_generation']['status']}")
 
-        if evidence_result["status"] == "success" and forensic_result["status"] == "success":
+        # Check success status
+        statuses_to_check = [evidence_result["status"], forensic_result["status"]]
+        if ftk_result:
+            statuses_to_check.insert(1, ftk_result["status"])
+        
+        if all(s == "success" for s in statuses_to_check):
             overall_status = "success"
             print(f"\n[SUCCESS] Sequential workflow completed successfully!")
-        elif "success" in [evidence_result["status"], forensic_result["status"]]:
+        elif any(s == "success" for s in statuses_to_check):
             overall_status = "partial_success"
             print(f"\n[PARTIAL] Sequential workflow completed with some issues")
         else:
@@ -614,13 +771,18 @@ class EDITHOrchestrator:
             if forensic_result.get('report_generation') and forensic_result['report_generation']['status'] == "success":
                 print(f"[INFO] Reports and PDFs generated automatically!")
 
-        return {
+        result_dict = {
             "status": overall_status,
             "case_id": case_id,
             "case_dir": case_dir,
             "evidence_collection": evidence_result,
             "forensic_analysis": forensic_result
         }
+        
+        if ftk_result:
+            result_dict["ftk_image_processing"] = ftk_result
+        
+        return result_dict
 
     async def run_simultaneous_workflow(self, evidence_path, memory_path=None):
         """Run evidence collection and forensic analysis simultaneously"""
