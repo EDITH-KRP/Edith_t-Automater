@@ -453,42 +453,8 @@ def run_workflow(evidence_path, memory_file=None):
     else:
         print("[WARNING] Could not compare hashes — one or both hash runs failed.")
 
-
-    print(f"\n=== Generating Final Reports ===")
-    try:
-        # Get the Python executable (same way as orchestrator)
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        venv_python = os.path.join(project_root, ".venv", "Scripts", "python.exe")
-        if os.path.exists(venv_python):
-            python_executable = venv_python
-        else:
-            python_executable = sys.executable
-        
-        print(f"[INFO] Running report generation...")
-        report_script = os.path.join(os.path.dirname(__file__), "report_gen.py")
-        
-        # Set environment variable for the case directory
-        env = os.environ.copy()
-        env['CASE_DIR'] = case_results_dir
-        
-        result = subprocess.run([
-            python_executable, report_script
-        ], cwd=os.path.dirname(__file__), env=env, capture_output=True, text=True, timeout=300)
-        
-        if result.returncode == 0:
-            print(f"[+] Final reports generated successfully!")
-            if result.stdout:
-                for line in result.stdout.split('\n'):
-                    if line.strip():
-                        print(f"    {line}")
-        else:
-            print(f"[!] Report generation had warnings:")
-            if result.stderr:
-                for line in result.stderr.split('\n')[:5]:  # Show first 5 error lines
-                    if line.strip():
-                        print(f"    {line}")
-    except Exception as e:
-        print(f"[!] Error generating final reports: {e}")
+    # NOTE: Report generation is handled by the orchestrator after this function
+    # returns. Do NOT call report_gen.py here to avoid duplicate PDFs/HTMLs.
 
     print("\n Full forensic workflow completed successfully!")
     print("   - Baseline hashes created")

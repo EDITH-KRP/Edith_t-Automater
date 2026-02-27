@@ -1014,20 +1014,9 @@ class EDITHOrchestrator:
             overall_status = "failed"
             print(f"\n[ERROR] Workflow failed")
 
-        report_result = None
-        if overall_status in ("success", "partial_success") and case_id and case_dir:
-            print(f"\n[INFO] Starting automatic report generation...")
-            try:
-                report_result = await self.run_report_generation(case_id, case_dir)
-                if report_result["status"] == "success":
-                    print(f"[SUCCESS] Report generation completed successfully!")
-                elif report_result["status"] == "warning":
-                    print(f"[WARNING] Report generation completed with warnings")
-                else:
-                    print(f"[ERROR] Report generation failed: {report_result.get('message', 'Unknown error')}")
-            except Exception as e:
-                print(f"[ERROR] Report generation failed: {e}")
-                report_result = {"status": "error", "message": str(e)}
+        # Reports are already generated inside run_forensic_analysis_automated.
+        # Do NOT call run_report_generation again here to avoid duplicate files.
+        report_result = forensic_result.get("report_generation") if forensic_result and not isinstance(forensic_result, Exception) else None
 
         print(f"\n[INFO] All results saved to: {case_dir}")
         if report_result and report_result.get("status") == "success":
