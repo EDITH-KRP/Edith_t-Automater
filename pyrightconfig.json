@@ -1,0 +1,12 @@
+{
+  "pythonVersion": "3.11",
+  "include": [
+    "orchestrator",
+    "tools"
+  ],
+  "extraPaths": [
+    "tools",
+    "orchestrator"
+  ],
+  "reportMissingModuleSource": "none"
+}

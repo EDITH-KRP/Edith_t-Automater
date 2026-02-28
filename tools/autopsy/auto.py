@@ -22,21 +22,44 @@ def run_cmd(cmd):
 
 def check_tools():
     """Check if required forensic tools are available"""
-    # Get the path to the SleuthKit binaries
+    import shutil
+    # Primary: SleuthKit bundled next to this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     sleuthkit_bin = os.path.join(script_dir, "sleuthkit-4.12.1-win32", "bin")
-    
+
+    # Fallback 1: the script may be running from a copied/USB location but
+    # SleuthKit lives in the original C: project tree.  Walk up from __file__
+    # up to 4 levels looking for the bundled bin dir.
+    if not os.path.isdir(sleuthkit_bin):
+        check = os.path.abspath(__file__)
+        for _ in range(6):
+            check = os.path.dirname(check)
+            candidate = os.path.join(check, "tools", "autopsy",
+                                     "sleuthkit-4.12.1-win32", "bin")
+            if os.path.isdir(candidate):
+                sleuthkit_bin = candidate
+                break
+
     tools = ['mmls.exe', 'fls.exe', 'fsstat.exe', 'tsk_recover.exe']
     available = {}
-    
+
     for tool in tools:
         tool_path = os.path.join(sleuthkit_bin, tool)
-        available[tool] = os.path.exists(tool_path)
-        if available[tool]:
+        if os.path.exists(tool_path):
+            available[tool] = True
             print(f"[+] Found tool: {tool} at {tool_path}")
         else:
-            print(f"[!] Missing tool: {tool}")
-    
+            # Fallback 2: check system PATH
+            which = shutil.which(tool) or shutil.which(tool.replace(".exe", ""))
+            if which:
+                available[tool] = True
+                # redirect the bin dir so subsequent calls use the right path
+                sleuthkit_bin = os.path.dirname(which)
+                print(f"[+] Found tool: {tool} on PATH at {which}")
+            else:
+                available[tool] = False
+                print(f"[!] Missing tool: {tool} (checked {tool_path})")
+
     return available, sleuthkit_bin
 
 def compute_hashes(file_path):
@@ -54,17 +77,46 @@ def compute_hashes(file_path):
     return {"md5": md5.hexdigest(), "sha256": sha256.hexdigest()}
 
 def get_partition_offset(image_path, sleuthkit_bin):
-    """Parse mmls output to get NTFS/ExFAT offset"""
+    """Parse mmls output to get NTFS/ExFAT offset.
+    Falls back to offset 0 if the image is a raw partition or unsupported type."""
     mmls_path = os.path.join(sleuthkit_bin, "mmls.exe")
     output = run_cmd(f'"{mmls_path}" "{image_path}"')
-    if output is None:
-        return None, None
     offset = None
-    for line in output.splitlines():
-        if "NTFS" in line or "exFAT" in line:
-            parts = line.split()
-            offset = parts[2]  # Start sector
-            break
+
+    if output:
+        for line in output.splitlines():
+            upper = line.upper()
+            if "NTFS" in upper or "EXFAT" in upper or "FAT" in upper or "EXT" in upper:
+                parts = line.split()
+                if len(parts) >= 3:
+                    try:
+                        offset = parts[2].lstrip('0') or '0'
+                        break
+                    except Exception:
+                        pass
+        if offset is None:
+            # Try any allocated partition
+            for line in output.splitlines():
+                parts = line.split()
+                if len(parts) >= 5 and parts[0].endswith(':'):
+                    try:
+                        offset = parts[2].lstrip('0') or '0'
+                        break
+                    except Exception:
+                        pass
+
+    if offset is None:
+        # mmls failed or no partition found — try direct offset 0
+        # (handles raw partitions, single-partition images, memory dumps)
+        fsstat_path = os.path.join(sleuthkit_bin, "fsstat.exe")
+        probe = run_cmd(f'"{fsstat_path}" -o 0 "{image_path}"')
+        if probe:
+            print("[*] No partition table found — treating as raw partition at offset 0")
+            offset = '0'
+            output = output or "(no partition table — direct access)"
+        else:
+            print("[!] Cannot determine partition structure. Image may be a memory dump or unsupported format.")
+
     return offset, output
 
 def main(image_path=None, output_dir=None):
@@ -113,18 +165,17 @@ def main(image_path=None, output_dir=None):
 
     # Try TSK tools if available
     if available_tools.get('mmls.exe', False):
-        # Get partition offset
-        print("[*] Running mmls...")
+        # Get partition offset (with raw-partition fallback)
+        print("[*] Running mmls / partition detection...")
         offset, mmls_output = get_partition_offset(image_path, sleuthkit_bin)
-        if offset:
-            print(f"[*] Detected partition offset: {offset}")
+        if offset is not None:
+            print(f"[*] Using partition offset: {offset}")
             file_info["partition_offset"] = offset
-            
-            # Save partition table
-            with open(os.path.join(case_folder, "partitions.txt"), "w", encoding='utf-8') as f:
-                f.write(mmls_output)
+            if mmls_output:
+                with open(os.path.join(case_folder, "partitions.txt"), "w", encoding='utf-8') as f:
+                    f.write(mmls_output)
         else:
-            print("[!] Could not detect partition offset!")
+            print("[!] Could not determine partition offset — skipping TSK analysis")
             file_info["partition_offset"] = None
     else:
         print("[!] mmls not available - skipping partition analysis")

@@ -15,6 +15,9 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
+import subprocess
+import shutil
+
 # Try to import libewf for E01 analysis
 try:
     import pyewf
@@ -28,6 +31,21 @@ try:
     TSK_AVAILABLE = True
 except ImportError:
     TSK_AVAILABLE = False
+
+def _find_sleuthkit_bin() -> str:
+    """Locate SleuthKit bin directory (bundled or system PATH)."""
+    # Check bundled location next to this module
+    here = Path(__file__).resolve().parent.parent  # tools/
+    bundled = here / "autopsy" / "sleuthkit-4.12.1-win32" / "bin"
+    if (bundled / "img_stat.exe").exists():
+        return str(bundled)
+    # Fall back to system PATH
+    found = shutil.which("img_stat")
+    if found:
+        return str(Path(found).parent)
+    return ""  # not found
+
+SLEUTHKIT_BIN = _find_sleuthkit_bin()
 
 
 class FTKImageAnalyzer:
@@ -67,14 +85,54 @@ class FTKImageAnalyzer:
         
         return format_map.get(extension, f'Unknown ({extension})')
     
+    def extract_e01_metadata_via_sleuthkit(self) -> Dict:
+        """
+        Extract E01/EWF metadata using bundled SleuthKit img_stat (no pyewf needed).
+        """
+        if not SLEUTHKIT_BIN:
+            return {}
+        img_stat = os.path.join(SLEUTHKIT_BIN, "img_stat.exe")
+        if not os.path.exists(img_stat):
+            img_stat = "img_stat"
+        try:
+            result = subprocess.run(
+                [img_stat, str(self.image_path)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, timeout=120
+            )
+            output = result.stdout
+            meta = {"format": "EWF (Encase)"}
+            for line in output.splitlines():
+                if ":" in line:
+                    key, _, val = line.partition(":")
+                    key = key.strip().lower().replace(" ", "_")
+                    val = val.strip()
+                    if key == "size_of_data_in_bytes":
+                        meta["media_size_bytes"] = int(val)
+                        meta["file_size_bytes"] = int(val)
+                        meta["sectors"] = int(val) // 512
+                    elif key == "sector_size":
+                        meta["bytes_per_sector"] = int(val)
+                    elif key == "image_type":
+                        meta["format"] = val.upper()
+                    elif key == "md5_hash_of_data":
+                        meta["md5_hash"] = val
+                    else:
+                        meta[key] = val
+            self.logger.info(f"E01 metadata via SleuthKit img_stat: {meta}")
+            return meta
+        except Exception as e:
+            self.logger.warning(f"img_stat fallback failed: {e}")
+            return {}
+
     def extract_e01_metadata(self) -> Dict:
         """
-        Extract metadata from EWF (.E01) image files
-        Requires: pyewf library
+        Extract metadata from EWF (.E01) image files.
+        Uses pyewf if available, falls back to SleuthKit img_stat.
         """
         if not EWF_AVAILABLE:
-            self.logger.warning("pyewf not installed. Install with: pip install libewf-python")
-            return {}
+            self.logger.info("pyewf not installed — using SleuthKit img_stat fallback")
+            return self.extract_e01_metadata_via_sleuthkit()
         
         try:
             ewf_handle = pyewf.glob(str(self.image_path))
@@ -149,29 +207,27 @@ class FTKImageAnalyzer:
             self.logger.error(f"Error extracting raw image metadata: {e}")
             return {}
     
-    def calculate_image_hash(self, algorithm: str = 'md5', chunk_size: int = 8192) -> str:
+    def calculate_image_hash(self, algorithm: str = 'md5', chunk_size: int = 4 * 1024 * 1024) -> str:
         """
-        Calculate hash of image file
-        
+        Calculate hash of image file.
+        chunk_size defaults to 4 MB for efficient large-file IO.
+
         Args:
             algorithm: Hash algorithm ('md5', 'sha1', 'sha256')
-            chunk_size: Bytes to read at a time
-        
+            chunk_size: Bytes to read at a time (default 4 MB)
+
         Returns:
             Hash string
         """
         try:
             hash_obj = hashlib.new(algorithm)
-            
             with open(self.image_path, 'rb') as f:
                 while True:
                     chunk = f.read(chunk_size)
                     if not chunk:
                         break
                     hash_obj.update(chunk)
-            
             return hash_obj.hexdigest()
-        
         except Exception as e:
             self.logger.error(f"Error calculating {algorithm} hash: {e}")
             return ""
@@ -321,7 +377,11 @@ class FTKImageAnalyzer:
         
         # Extract format-specific metadata
         if self.image_path.suffix.upper() in ['.E01', '.001']:
-            all_metadata.update(self.extract_e01_metadata())
+            ewf_meta = self.extract_e01_metadata()
+            all_metadata.update(ewf_meta)
+            # img_stat gives us the real MD5 — no need to re-hash
+            if ewf_meta.get('md5_hash'):
+                all_metadata['_hash_from_image_header'] = True
         else:
             all_metadata.update(self.extract_raw_image_metadata())
         
@@ -332,17 +392,32 @@ class FTKImageAnalyzer:
         all_metadata.update(self.check_verification_file())
         
         # Calculate image hashes if not already present
+        # For EWF images, img_stat already gives us the verified MD5 from the header
         if 'md5_hash' not in all_metadata:
-            self.logger.info("Calculating MD5 hash (this may take a while)...")
+            self.logger.info("Calculating MD5 hash (this may take a while for large images)...")
             all_metadata['md5_hash'] = self.calculate_image_hash('md5')
-        
-        if 'sha1_hash' not in all_metadata:
-            self.logger.info("Calculating SHA1 hash...")
-            all_metadata['sha1_hash'] = self.calculate_image_hash('sha1')
-        
-        if 'sha256_hash' not in all_metadata:
-            self.logger.info("Calculating SHA256 hash...")
-            all_metadata['sha256_hash'] = self.calculate_image_hash('sha256')
+        else:
+            self.logger.info(f"MD5 from image header: {all_metadata['md5_hash']}")
+
+        # Compute SHA1 + SHA256 in a SINGLE combined pass (avoids reading the file twice)
+        need_sha1   = 'sha1_hash'   not in all_metadata
+        need_sha256 = 'sha256_hash' not in all_metadata
+        if need_sha1 or need_sha256:
+            self.logger.info("Calculating SHA1/SHA256 in one combined pass...")
+            h1   = hashlib.sha1()   if need_sha1   else None
+            h256 = hashlib.sha256() if need_sha256 else None
+            try:
+                with open(self.image_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(4 * 1024 * 1024)  # 4 MB chunks
+                        if not chunk:
+                            break
+                        if h1:   h1.update(chunk)
+                        if h256: h256.update(chunk)
+                if need_sha1:   all_metadata['sha1_hash']   = h1.hexdigest()
+                if need_sha256: all_metadata['sha256_hash'] = h256.hexdigest()
+            except Exception as e:
+                self.logger.error(f"Combined SHA hash failed: {e}")
         
         # Extract pytsk3 metadata
         all_metadata.update(self.analyze_with_pytsk3())

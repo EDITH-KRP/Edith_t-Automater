@@ -37,17 +37,17 @@ class EDITHOrchestrator:
 
     def __init__(self):
         self.setup_logging()
-        # ── Frozen-exe detection ─────────────────────────────────────────────
+        # -- Frozen-exe detection ---------------------------------------------
         # When built with PyInstaller (one-file), __file__ resolves to the
         # _MEIPASS temp dir.  Use sys.executable (the actual .exe) instead.
         if getattr(sys, 'frozen', False):
-            # Frozen: Results/ lives next to the exe — easy to find on USB / Desktop
+            # Frozen: Results/ lives next to the exe -- easy to find on USB / Desktop
             self.project_root = Path(sys.executable).resolve().parent
             self._bundle_dir   = Path(sys._MEIPASS)
         else:
             self.project_root = Path(__file__).parent.parent
             self._bundle_dir   = None
-        # ────────────────────────────────────────────────────────────────────
+        # --------------------------------------------------------------------
         self.results_dir = self.project_root / "Results"
         self.results_dir.mkdir(exist_ok=True)
         self.logger = logging.getLogger("EDITHOrchestrator")
@@ -77,10 +77,10 @@ class EDITHOrchestrator:
             for candidate in ('python', 'python3', 'py'):
                 found = shutil.which(candidate)
                 if found and Path(found).resolve() != Path(sys.executable).resolve():
-                    self.logger.info(f"Frozen mode — system Python found: {found}")
+                    self.logger.info(f"Frozen mode -- system Python found: {found}")
                     return found
             self.logger.warning(
-                "Frozen mode — no system Python found on PATH. "
+                "Frozen mode -- no system Python found on PATH. "
                 "Install Python and ensure it is on the PATH."
             )
             return sys.executable   # last resort (will likely fail)
@@ -124,8 +124,8 @@ class EDITHOrchestrator:
 
     def get_scripts_dir(self) -> Path:
         """Return the Scripts directory whether running frozen or from source.
-        Frozen  → scripts are extracted to _MEIPASS/tools/Scripts
-        Unfrozen → scripts live under project_root/tools/Scripts"""
+        Frozen  -> scripts are extracted to _MEIPASS/tools/Scripts
+        Unfrozen -> scripts live under project_root/tools/Scripts"""
         if self._bundle_dir and self._bundle_dir.exists():
             return self._bundle_dir / "tools" / "Scripts"
         return self.project_root / "tools" / "Scripts"
@@ -133,7 +133,12 @@ class EDITHOrchestrator:
     def setup_logging(self):
         """Configure logging for the orchestrator"""
         # Mod-8 FIX: use absolute path so log file location is predictable regardless of cwd
-        log_path = Path(__file__).parent / "orchestrator.log"
+        # When frozen, __file__ points to the _MEIPASS temp dir (deleted on exit).
+        # Use sys.executable.parent so the log lands next to the .exe.
+        if getattr(sys, 'frozen', False):
+            log_path = Path(sys.executable).resolve().parent / "orchestrator.log"
+        else:
+            log_path = Path(__file__).parent / "orchestrator.log"
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -188,12 +193,9 @@ class EDITHOrchestrator:
                 return None
 
             # Mod-3 FIX: sort by the timestamp embedded in the name, not st_ctime
-            # (st_ctime is NOT creation time on Linux — it is inode change time)
+            # (st_ctime is NOT creation time on Linux -- it is inode change time)
             def _case_key(p):
-                try:
-                    return p.name  # CASE_YYYYMMDD_HHMMSS sorts lexicographically = chronologically
-                except Exception:
-                    return p.name
+                return p.name  # CASE_YYYYMMDD_HHMMSS sorts lexicographically = chronologically
 
             latest = max(case_dirs, key=_case_key)
             return str(latest)
@@ -259,43 +261,40 @@ class EDITHOrchestrator:
         try:
             scripts_dir = self.get_scripts_dir()
 
-            try:
-                python_executable = self.python_executable
+            python_executable = self.python_executable
 
-                print(f"[INFO] Starting interactive evidence collection...")
-                print(f"[INFO] Running q_script.py...")
-                print(f"[INFO] Scripts dir: {scripts_dir}")
+            print(f"[INFO] Starting interactive evidence collection...")
+            print(f"[INFO] Running q_script.py...")
+            print(f"[INFO] Scripts dir: {scripts_dir}")
 
-                # Forward evidence path so q_script auto-confirms the image file question
-                env = self.get_subprocess_env()
-                if evidence_path and Path(evidence_path).is_file():
-                    env['EDITH_EVIDENCE_PATH'] = str(evidence_path)
-                    print(f"[INFO] Evidence path pre-supplied to questionnaire: {evidence_path}")
+            # Forward evidence path so q_script auto-confirms the image file question
+            env = self.get_subprocess_env()
+            if evidence_path and Path(evidence_path).is_file():
+                env['EDITH_EVIDENCE_PATH'] = str(evidence_path)
+                print(f"[INFO] Evidence path pre-supplied to questionnaire: {evidence_path}")
 
-                result = subprocess.run([
-                    python_executable, str(scripts_dir / 'q_script.py')
-                ], timeout=1800, env=env, cwd=str(scripts_dir))  # 30 minute timeout for user interaction
+            result = subprocess.run([
+                python_executable, str(scripts_dir / 'q_script.py')
+            ], timeout=1800, env=env, cwd=str(scripts_dir))  # 30 minute timeout for user interaction
 
-                if result.returncode == 0:
-                    print(f"\n[SUCCESS] Evidence collection completed successfully!")
+            if result.returncode == 0:
+                print(f"\n[SUCCESS] Evidence collection completed successfully!")
 
-                    # Try to find the latest case directory created
-                    latest_case = self.find_latest_case()
-                    if latest_case:
-                        case_dir = latest_case
-                        case_id = Path(latest_case).name
-                        print(f"[INFO] Case created: {case_id}")
-                        print(f"[INFO] Case directory: {case_dir}")
+                # Try to find the latest case directory created
+                latest_case = self.find_latest_case()
+                if latest_case:
+                    case_dir = latest_case
+                    case_id = Path(latest_case).name
+                    print(f"[INFO] Case created: {case_id}")
+                    print(f"[INFO] Case directory: {case_dir}")
 
-                    status = "success"
-                    message = "Interactive evidence collection completed successfully"
-                else:
-                    print(f"\n[WARNING] Evidence collection completed with warnings")
-                    status = "warning"
-                    message = "Evidence collection completed with warnings"
+                status = "success"
+                message = "Interactive evidence collection completed successfully"
+            else:
+                print(f"\n[WARNING] Evidence collection completed with warnings")
+                status = "warning"
+                message = "Evidence collection completed with warnings"
 
-            except Exception:
-                raise  # re-raise so outer excepts handle it
 
         except subprocess.TimeoutExpired:
             print(f"\n[ERROR] Evidence collection timed out after 30 minutes")
@@ -332,6 +331,7 @@ class EDITHOrchestrator:
 
         # Compute hashes from evidence file if provided
         md5_hash = ""
+        sha1_hash = ""
         sha256_hash = ""
         evidence_size = "TBD"
         evidence_label = "TBD"
@@ -341,15 +341,19 @@ class EDITHOrchestrator:
             evidence_label = ep.name
             evidence_size = str(ep.stat().st_size) + " bytes"
             md5_h = hashlib.md5()
+            sha1_h = hashlib.sha1()
             sha256_h = hashlib.sha256()
             try:
                 with open(ep, "rb") as _ef:
                     for _chunk in iter(lambda: _ef.read(8 * 1024 * 1024), b""):
                         md5_h.update(_chunk)
+                        sha1_h.update(_chunk)
                         sha256_h.update(_chunk)
                 md5_hash = md5_h.hexdigest()
+                sha1_hash = sha1_h.hexdigest()
                 sha256_hash = sha256_h.hexdigest()
                 print(f"[INFO] Evidence MD5:    {md5_hash}")
+                print(f"[INFO] Evidence SHA1:   {sha1_hash}")
                 print(f"[INFO] Evidence SHA256: {sha256_hash}")
             except Exception as _e:
                 self.logger.warning(f"Could not hash evidence file: {_e}")
@@ -377,7 +381,8 @@ class EDITHOrchestrator:
             "Is Hash Value Calculated (Yes/No)": "Yes",
             "Algorithm Used (MD5/SHA1/Others)": "SHA-256",
             "MD5 hash value": md5_hash if md5_hash else "N/A",
-            "SHA1 hash value": sha256_hash if sha256_hash else "N/A",
+            "SHA1 hash value": sha1_hash if sha1_hash else "N/A",
+            "SHA256 hash value": sha256_hash if sha256_hash else "N/A",
             "Storage Master Copy Make/Model/Size/Serial No": f"{evidence_label}///{evidence_size}",
             "Storage Working Copy Make/Model/Size/Serial No": f"{evidence_label}///{evidence_size}",
             "Victim Device Make/Model/Size/Serial No": f"Unknown///{evidence_size}",
@@ -434,6 +439,12 @@ class EDITHOrchestrator:
         # Ensure case structure exists
         self.ensure_case_structure(case_dir)
 
+        # Resolve evidence_path to absolute so subprocess (running in scripts_dir cwd) can find it
+        # Strip any stray surrounding quotes that batch/shell expansion can introduce
+        evidence_path = str(Path(str(evidence_path).strip('"\'')).resolve())
+        if memory_path:
+            memory_path = str(Path(str(memory_path).strip('"\'')).resolve())
+
         # M-5 FIX: validate evidence file before starting any tool
         if not Path(evidence_path).exists():
             print(f"[ERROR] Evidence file not found: {evidence_path}")
@@ -464,59 +475,53 @@ class EDITHOrchestrator:
             if memory_path:
                 print(f"[INFO] Memory file: {memory_path}")
 
-            try:
-                python_executable = self.python_executable
+            python_executable = self.python_executable
 
-                # Pass evidence/memory as explicit CLI args — no stdin dependency
-                cmd = [python_executable, str(scripts_dir / 'script_3.py'), '--evidence', evidence_path]
-                if memory_path:
-                    cmd += ['--memory', memory_path]
+            # Pass evidence/memory as explicit CLI args -- no stdin dependency
+            cmd = [python_executable, str(scripts_dir / 'script_3.py'), '--evidence', evidence_path]
+            if memory_path:
+                cmd += ['--memory', memory_path]
 
-                # Set environment variable to tell script_3.py to use existing case directory
-                env = self.get_subprocess_env()
-                env['EDITH_USE_EXISTING_CASE'] = 'true'
-                env['EDITH_CASE_DIR'] = case_dir
-                env['EDITH_CASE_ID'] = case_id
+            # Set environment variable to tell script_3.py to use existing case directory
+            env = self.get_subprocess_env()
+            env['EDITH_USE_EXISTING_CASE'] = 'true'
+            env['EDITH_CASE_DIR'] = case_dir
+            env['EDITH_CASE_ID'] = case_id
 
-                print(f"[INFO] Executing forensic analysis workflow...")
-                print(f"[INFO] Live output (large evidence files may take several minutes):")
-                print("-" * 60)
-                sys.stdout.flush()
+            print(f"[INFO] Executing forensic analysis workflow...")
+            print(f"[INFO] Live output (large evidence files may take several minutes):")
+            print("-" * 60)
+            sys.stdout.flush()
 
-                # Stream output line-by-line so progress is visible in real-time
-                returncode = None
-                try:
-                    with subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        encoding='utf-8',
-                        errors='replace',
-                        env=env,
-                        cwd=str(scripts_dir)
-                    ) as proc:
-                        for line in proc.stdout:
-                            print(f"  {line}", end='', flush=True)
-                        proc.wait(timeout=3600)
-                        returncode = proc.returncode
-                except subprocess.TimeoutExpired:
-                    raise
+            # Stream output line-by-line so progress is visible in real-time
+            returncode = None
+            with subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                encoding='utf-8',
+                errors='replace',
+                env=env,
+                cwd=str(scripts_dir)
+            ) as proc:
+                for line in proc.stdout:
+                    print(f"  {line}", end='', flush=True)
+                proc.wait(timeout=3600)
+                returncode = proc.returncode
 
-                print("-" * 60)
+            print("-" * 60)
 
-                if returncode == 0:
-                    print(f"\n[SUCCESS] Forensic analysis completed successfully!")
-                    print(f"[INFO] Results saved to: {case_dir}")
-                    status = "success"
-                    message = "Forensic analysis completed successfully"
-                else:
-                    print(f"\n[WARNING] Forensic analysis completed with warnings (rc={returncode})")
-                    print(f"[INFO] Check output above and logs in: {case_dir}")
-                    status = "warning"
-                    message = f"Forensic analysis completed with warnings (rc={returncode})"
+            if returncode == 0:
+                print(f"\n[SUCCESS] Forensic analysis completed successfully!")
+                print(f"[INFO] Results saved to: {case_dir}")
+                status = "success"
+                message = "Forensic analysis completed successfully"
+            else:
+                print(f"\n[WARNING] Forensic analysis completed with warnings (rc={returncode})")
+                print(f"[INFO] Check output above and logs in: {case_dir}")
+                status = "warning"
+                message = f"Forensic analysis completed with warnings (rc={returncode})"
 
-            except Exception:
-                raise
 
         except subprocess.TimeoutExpired:
             print(f"\n[ERROR] Forensic analysis timed out after 1 hour")
@@ -562,6 +567,11 @@ class EDITHOrchestrator:
         print("EDITH-Automater: Interactive Forensic Analysis")
         print(f"{'='*80}")
 
+        # Always resolve to absolute path so subprocess cwd doesn't matter
+        evidence_path = str(Path(evidence_path).resolve())
+        if memory_path:
+            memory_path = str(Path(memory_path).resolve())
+
         # C-4 FIX: pre-initialize
         status = "error"
         message = "Unknown error in forensic analysis"
@@ -569,32 +579,29 @@ class EDITHOrchestrator:
         try:
             scripts_dir = self.get_scripts_dir()
 
-            try:
-                python_executable = self.python_executable
+            python_executable = self.python_executable
 
-                print(f"[INFO] Starting interactive forensic analysis...")
-                print(f"[INFO] Running script_3.py...")
+            print(f"[INFO] Starting interactive forensic analysis...")
+            print(f"[INFO] Running script_3.py...")
 
-                # Pass evidence/memory as explicit CLI args — no stdin dependency
-                cmd = [python_executable, str(scripts_dir / 'script_3.py'), '--evidence', evidence_path]
-                if memory_path:
-                    cmd += ['--memory', memory_path]
+            # Pass evidence/memory as explicit CLI args -- no stdin dependency
+            cmd = [python_executable, str(scripts_dir / 'script_3.py'), '--evidence', evidence_path]
+            if memory_path:
+                cmd += ['--memory', memory_path]
 
-                result = subprocess.run(
-                    cmd, text=True, timeout=3600,
-                    env=self.get_subprocess_env(), cwd=str(scripts_dir))
+            result = subprocess.run(
+                cmd, text=True, timeout=3600,
+                env=self.get_subprocess_env(), cwd=str(scripts_dir))
 
-                if result.returncode == 0:
-                    print(f"\n[SUCCESS] Forensic analysis completed successfully!")
-                    status = "success"
-                    message = "Interactive forensic analysis completed successfully"
-                else:
-                    print(f"\n[WARNING] Forensic analysis completed with warnings")
-                    status = "warning"
-                    message = "Forensic analysis completed with warnings"
+            if result.returncode == 0:
+                print(f"\n[SUCCESS] Forensic analysis completed successfully!")
+                status = "success"
+                message = "Interactive forensic analysis completed successfully"
+            else:
+                print(f"\n[WARNING] Forensic analysis completed with warnings")
+                status = "warning"
+                message = "Forensic analysis completed with warnings"
 
-            except Exception:
-                raise
 
         except subprocess.TimeoutExpired:
             print(f"\n[ERROR] Forensic analysis timed out after 1 hour")
@@ -635,50 +642,46 @@ class EDITHOrchestrator:
             print(f"\n[INFO] Starting report generation...")
             print(f"[INFO] Running report_gen.py...")
 
+            # C-8 FIX: use cwd= instead of os.chdir()
+            # Run report_gen.py
+            python_executable = self.python_executable
+
+            # Pass the exact case directory so report_gen picks the right case
+            rep_env = self.get_subprocess_env()
+            rep_env['CASE_DIR'] = str(case_dir)
+
+            print(f"[INFO] Live output:")
+            print("-" * 60)
+            sys.stdout.flush()
+
+            returncode = None
             try:
-                # C-8 FIX: use cwd= instead of os.chdir()
-                # Run report_gen.py
-                python_executable = self.python_executable
-
-                # Pass the exact case directory so report_gen picks the right case
-                rep_env = self.get_subprocess_env()
-                rep_env['CASE_DIR'] = str(case_dir)
-
-                print(f"[INFO] Live output:")
-                print("-" * 60)
-                sys.stdout.flush()
-
-                returncode = None
-                try:
-                    with subprocess.Popen(
-                        [python_executable, str(scripts_dir / 'report_gen.py')],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        encoding='utf-8',
-                        errors='replace',
-                        env=rep_env,
-                        cwd=str(scripts_dir)
-                    ) as proc:
-                        for line in proc.stdout:
-                            print(f"  {line}", end='', flush=True)
-                        proc.wait(timeout=600)
-                        returncode = proc.returncode
-                except subprocess.TimeoutExpired:
-                    raise
-
-                print("-" * 60)
-
-                if returncode == 0:
-                    print(f"\n[SUCCESS] Report generation completed successfully!")
-                    status = "success"
-                    message = "Report generation completed successfully"
-                else:
-                    print(f"\n[WARNING] Report generation completed with warnings (rc={returncode})")
-                    status = "warning"
-                    message = f"Report generation completed with warnings (rc={returncode})"
-
-            except Exception:
+                with subprocess.Popen(
+                    [python_executable, str(scripts_dir / 'report_gen.py')],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    encoding='utf-8',
+                    errors='replace',
+                    env=rep_env,
+                    cwd=str(scripts_dir)
+                ) as proc:
+                    for line in proc.stdout:
+                        print(f"  {line}", end='', flush=True)
+                    proc.wait(timeout=600)
+                    returncode = proc.returncode
+            except subprocess.TimeoutExpired:
                 raise
+
+            print("-" * 60)
+
+            if returncode == 0:
+                print(f"\n[SUCCESS] Report generation completed successfully!")
+                status = "success"
+                message = "Report generation completed successfully"
+            else:
+                print(f"\n[WARNING] Report generation completed with warnings (rc={returncode})")
+                status = "warning"
+                message = f"Report generation completed with warnings (rc={returncode})"
 
         except subprocess.TimeoutExpired:
             print(f"\n[ERROR] Report generation timed out after 10 minutes")
@@ -750,7 +753,7 @@ class EDITHOrchestrator:
                 image_metadata = result.get('image_metadata', {})
                 ftk_form_path = result.get('ftk_form_path', '')
                 
-                print(f"✓ Image processed successfully")
+                print(f"[OK] Image processed successfully")
                 print(f"  File: {image_metadata.get('file_name', 'N/A')}")
                 print(f"  Format: {image_metadata.get('format', 'N/A')}")
                 print(f"  Size: {image_metadata.get('file_size_gb', 0)} GB")
@@ -768,7 +771,7 @@ class EDITHOrchestrator:
             else:
                 error_msg = result.get('error', 'Unknown error during FTK processing')
                 self.logger.error(f"FTK processing failed: {error_msg}")
-                print(f"✗ FTK processing failed: {error_msg}")
+                print(f"[FAIL] FTK processing failed: {error_msg}")
                 
                 return {
                     "status": "error",
@@ -779,7 +782,7 @@ class EDITHOrchestrator:
         
         except Exception as e:
             self.logger.error(f"Error processing FTK image: {e}")
-            print(f"✗ Error processing FTK image: {e}")
+            print(f"[FAIL] Error processing FTK image: {e}")
             
             return {
                 "status": "error",
@@ -794,7 +797,7 @@ class EDITHOrchestrator:
 
         print(f"\n{'='*80}")
         print("EDITH-Automater: SEQUENTIAL WORKFLOW")
-        print("Evidence Collection → FTK Image Processing → Forensic Analysis")
+        print("Evidence Collection -> FTK Image Processing -> Forensic Analysis")
         print(f"{'='*80}")
 
         # Step 1: Evidence Collection
@@ -889,7 +892,8 @@ class EDITHOrchestrator:
         
         # Show report generation status if available
         if forensic_result.get('report_generation'):
-            print(f"[STEP 3] Report Generation: {forensic_result['report_generation']['status']}")
+            report_step = step_number + 1
+            print(f"[STEP {report_step}] Report Generation: {forensic_result['report_generation']['status']}")
 
         # Check success status
         statuses_to_check = [evidence_result["status"], forensic_result["status"]]
@@ -908,9 +912,79 @@ class EDITHOrchestrator:
 
         if case_dir:
             print(f"[INFO] All results saved to: {case_dir}")
+
+        # -- Cross-Tool Timeline Correlation -----------------------------
+        if case_dir and os.path.exists(case_dir):
+            try:
+                sys.path.insert(0, str(self.project_root / "tools"))
+                from timeline.timeline_correlator import TimelineCorrelator
+                officer = ""
+                evidence_data = evidence_result.get('data', {})
+                if isinstance(evidence_data, dict):
+                    officer = evidence_data.get('authorized_officer', '')
+                corr = TimelineCorrelator(case_dir, case_id or Path(case_dir).name, officer)
+                corr.build()
+                tl_dir = Path(case_dir) / "Timeline"
+                tl_dir.mkdir(exist_ok=True)
+                html_path = str(tl_dir / "investigation_timeline.html")
+                json_path = str(tl_dir / "timeline_events.json")
+                dashboard_path = str(Path(case_dir) / "case_dashboard.html")
+                corr.save_html(html_path)
+                corr.save_json(json_path)
+                # -- AI narrative (Ollama, graceful skip if unavailable) ----
+                ai_narrative = ""
+                try:
+                    from ai_analyst.ai_analyst import generate_narrative, get_available_model
+                    ai_model = get_available_model()
+                    if ai_model:
+                        print(f"[AI] Generating forensic narrative with {ai_model} ...")
+                        ai_narrative = generate_narrative(
+                            Path(case_dir), Path(json_path)) or ""
+                        if ai_narrative:
+                            print(f"[AI] Narrative ready ({len(ai_narrative.split())} words)")
+                        else:
+                            print("[AI] Narrative skipped (no timeline data yet)")
+                    else:
+                        print("[AI] Ollama not running -- dashboard will show static view")
+                except Exception as ai_err:
+                    self.logger.debug(f"AI narrative skipped: {ai_err}")
+                corr.save_dashboard(dashboard_path, ai_narrative=ai_narrative)
+                s = corr.summary()
+                print(f"\n[TIMELINE] {s['total_events']} events correlated across {len(s['by_source'])} tools")
+                print(f"[TIMELINE] Dashboard : {dashboard_path}")
+                print(f"[TIMELINE] HTML report: {html_path}")
+                if s.get('high_critical'):
+                    print(f"[TIMELINE] [!] {len(s['high_critical'])} HIGH/CRITICAL findings")
+                try:
+                    import webbrowser
+                    webbrowser.open(f"file:///{dashboard_path.replace(chr(92), '/')}")
+                except Exception:
+                    pass
+            except Exception as tl_err:
+                self.logger.warning(f"Timeline generation failed: {tl_err}")
             # Show report generation summary if available
             if forensic_result.get('report_generation') and forensic_result['report_generation']['status'] == "success":
                 print(f"[INFO] Reports and PDFs generated automatically!")
+
+            # -- Final summary box ----------------------------------------
+            print(f"\n{'='*60}")
+            print("  EDITH PIPELINE COMPLETE")
+            print(f"{'='*60}")
+            print(f"  Case ID   : {case_id}")
+            print(f"  Case dir  : {case_dir}")
+            try:
+                dashboard_p = str(Path(case_dir) / 'case_dashboard.html')
+                tl_p = str(Path(case_dir) / 'Timeline' / 'investigation_timeline.html')
+                int_p = str(Path(case_dir) / 'HashDeep_output' / 'verification' / 'integrity_verification.txt')
+                pdf_dir = Path(case_dir) / 'Reports pdf'
+                pdf_count = len(list(pdf_dir.glob('*.pdf'))) if pdf_dir.exists() else 0
+                print(f"  Dashboard : {dashboard_p}")
+                print(f"  Timeline  : {tl_p}")
+                print(f"  Integrity : {int_p}")
+                print(f"  PDFs      : {pdf_count} report(s) in {pdf_dir}")
+            except Exception:
+                pass
+            print(f"{'='*60}\n")
 
         result_dict = {
             "status": overall_status,
@@ -935,15 +1009,16 @@ class EDITHOrchestrator:
         print(f"{'='*80}")
 
         # ------------------------------------------------------------------ #
-        # STEP 1 — Ask questions interactively (blocks until user is done)   #
+        # STEP 1 -- Ask questions interactively (blocks until user is done)   #
         # ------------------------------------------------------------------ #
         print(f"\n[STEP 1/2] Evidence Collection Questionnaire")
-        print(f"{'─'*60}")
+        print(f"{'-'*60}")
 
         evidence_result = await self.run_evidence_collection_interactive(evidence_path=evidence_path)
 
-        if isinstance(evidence_result, Exception) or evidence_result.get("status") not in ("success", "completed"):
-            err = evidence_result if isinstance(evidence_result, Exception) else evidence_result.get("message", "unknown")
+        # "warning" is a valid successful outcome (q_script exited non-zero for a minor issue)
+        if evidence_result.get("status") not in ("success", "warning", "completed"):
+            err = evidence_result.get("message", "unknown")
             print(f"[ERROR] Evidence collection failed: {err}")
             return {
                 "status": "failed",
@@ -954,11 +1029,11 @@ class EDITHOrchestrator:
                 "report_generation": None,
             }
 
-        # q_script.py creates its own case directory — retrieve it
+        # q_script.py creates its own case directory -- retrieve it
         case_id  = evidence_result.get("case_id")
         case_dir = evidence_result.get("case_dir")
 
-        print(f"\n[INFO] Evidence collection complete — Case: {case_id}")
+        print(f"\n[INFO] Evidence collection complete -- Case: {case_id}")
         print(f"[INFO] Case Directory: {case_dir}")
 
         # If q_script saved a memory dump path in .case_info, use it now
@@ -979,10 +1054,10 @@ class EDITHOrchestrator:
                     pass
 
         # ------------------------------------------------------------------ #
-        # STEP 2 — Run forensic analysis (uses the case created in step 1)  #
+        # STEP 2 -- Run forensic analysis (uses the case created in step 1)  #
         # ------------------------------------------------------------------ #
         print(f"\n[STEP 2/2] Forensic Analysis")
-        print(f"{'─'*60}")
+        print(f"{'-'*60}")
 
         forensic_result = None
         forensic_status = "skipped"
@@ -1021,6 +1096,75 @@ class EDITHOrchestrator:
         print(f"\n[INFO] All results saved to: {case_dir}")
         if report_result and report_result.get("status") == "success":
             print(f"[INFO] Reports and PDFs generated automatically!")
+
+        # -- Cross-Tool Timeline Correlation + Dashboard ----------------------
+        if case_dir and os.path.exists(case_dir):
+            try:
+                sys.path.insert(0, str(self.project_root / "tools"))
+                from timeline.timeline_correlator import TimelineCorrelator
+                officer = "N/A"
+                ev_data = evidence_result.get("data", {})
+                if isinstance(ev_data, dict):
+                    officer = ev_data.get("authorized_officer", "N/A")
+                corr = TimelineCorrelator(case_dir, case_id or Path(case_dir).name, officer)
+                corr.build()
+                tl_dir = Path(case_dir) / "Timeline"
+                tl_dir.mkdir(exist_ok=True)
+                html_path      = str(tl_dir / "investigation_timeline.html")
+                json_path      = str(tl_dir / "timeline_events.json")
+                dashboard_path = str(Path(case_dir) / "case_dashboard.html")
+                corr.save_html(html_path)
+                corr.save_json(json_path)
+                # AI narrative (Ollama, graceful skip if unavailable)
+                ai_narrative = ""
+                try:
+                    from ai_analyst.ai_analyst import generate_narrative, get_available_model
+                    ai_model = get_available_model()
+                    if ai_model:
+                        print(f"[AI] Generating forensic narrative with {ai_model} ...")
+                        ai_narrative = generate_narrative(Path(case_dir), Path(json_path)) or ""
+                        if ai_narrative:
+                            print(f"[AI] Narrative ready ({len(ai_narrative.split())} words)")
+                        else:
+                            print("[AI] Narrative skipped (no timeline data yet)")
+                    else:
+                        print("[AI] Ollama not running -- dashboard will show static view")
+                except Exception as ai_err:
+                    self.logger.debug(f"AI narrative skipped: {ai_err}")
+                corr.save_dashboard(dashboard_path, ai_narrative=ai_narrative)
+                s = corr.summary()
+                print(f"\n[TIMELINE] {s['total_events']} events correlated across {len(s['by_source'])} tools")
+                print(f"[TIMELINE] Dashboard : {dashboard_path}")
+                print(f"[TIMELINE] HTML report: {html_path}")
+                if s.get("high_critical"):
+                    print(f"[TIMELINE] [!] {len(s['high_critical'])} HIGH/CRITICAL findings")
+                try:
+                    import webbrowser
+                    webbrowser.open(f"file:///{dashboard_path.replace(chr(92), '/')}")
+                except Exception:
+                    pass
+            except Exception as tl_err:
+                self.logger.warning(f"Timeline generation failed: {tl_err}")
+
+            # Final summary box
+            print(f"\n{'='*60}")
+            print("  EDITH PIPELINE COMPLETE")
+            print(f"{'='*60}")
+            print(f"  Case ID   : {case_id}")
+            print(f"  Case dir  : {case_dir}")
+            try:
+                dashboard_p = str(Path(case_dir) / "case_dashboard.html")
+                tl_p        = str(Path(case_dir) / "Timeline" / "investigation_timeline.html")
+                int_p       = str(Path(case_dir) / "HashDeep_output" / "verification" / "integrity_verification.txt")
+                pdf_dir     = Path(case_dir) / "Reports pdf"
+                pdf_count   = len(list(pdf_dir.glob("*.pdf"))) if pdf_dir.exists() else 0
+                print(f"  Dashboard : {dashboard_p}")
+                print(f"  Timeline  : {tl_p}")
+                print(f"  Integrity : {int_p}")
+                print(f"  PDFs      : {pdf_count} report(s) in {pdf_dir}")
+            except Exception:
+                pass
+            print(f"{'='*60}\n")
 
         self.logger.info(f"Simultaneous workflow completed for case: {case_id} with status: {overall_status}")
 
@@ -1196,6 +1340,55 @@ async def main():
             )
             print(f"\n[FINAL] Automated forensic analysis completed: {case_id}")
 
+            # Generate timeline + dashboard (same block as sequential/simultaneous)
+            if result.get("status") in ("success", "warning") and os.path.exists(case_dir):
+                try:
+                    sys.path.insert(0, str(orchestrator.project_root / "tools"))
+                    from timeline.timeline_correlator import TimelineCorrelator
+                    # Try to find officer from case info if possible, else "N/A"
+                    officer = "N/A"
+                    try:
+                        info_file = Path(case_dir) / "case_info.json"
+                        if info_file.exists():
+                            import json
+                            with open(info_file) as f:
+                                cinfo = json.load(f)
+                                officer = cinfo.get("authorized_officer", "N/A")
+                    except Exception:
+                        pass
+                    corr = TimelineCorrelator(case_dir, case_id, officer)
+                    corr.build()
+                    tl_dir = Path(case_dir) / "Timeline"
+                    tl_dir.mkdir(exist_ok=True)
+                    html_path      = str(tl_dir / "investigation_timeline.html")
+                    json_path      = str(tl_dir / "timeline_events.json")
+                    dashboard_path = str(Path(case_dir) / "case_dashboard.html")
+                    corr.save_html(html_path)
+                    corr.save_json(json_path)
+                    ai_narrative = ""
+                    try:
+                        from ai_analyst.ai_analyst import generate_narrative, get_available_model
+                        ai_model = get_available_model()
+                        if ai_model:
+                            print(f"[AI] Generating forensic narrative with {ai_model} ...")
+                            ai_narrative = generate_narrative(Path(case_dir), Path(json_path)) or ""
+                            if ai_narrative:
+                                print(f"[AI] Narrative ready ({len(ai_narrative.split())} words)")
+                        else:
+                            print("[AI] Ollama not running -- dashboard will show static view")
+                    except Exception:
+                        pass
+                    corr.save_dashboard(dashboard_path, ai_narrative=ai_narrative)
+                    s = corr.summary()
+                    print(f"[TIMELINE] {s['total_events']} events | Dashboard: {dashboard_path}")
+                    try:
+                        import webbrowser
+                        webbrowser.open(f"file:///{dashboard_path.replace(chr(92), '/')}")
+                    except Exception:
+                        pass
+                except Exception as tl_err:
+                    orchestrator.logger.warning(f"Timeline/dashboard generation failed: {tl_err}")
+
         elif args.command == 'report-only':
             if not args.case:
                 print("[ERROR] --case parameter required for report-only workflow")
@@ -1239,3 +1432,4 @@ if __name__ == "__main__":
     print("EDITH-Automater Orchestrator Starting...")
     print("=" * 60)
     asyncio.run(main())
+

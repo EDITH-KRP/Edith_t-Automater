@@ -28,6 +28,11 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 import time
+# Optional for cache serialization
+try:
+    import dataclasses as _dc
+except ImportError:
+    pass
 
 # Configure logging (console only - case-specific file logging handled separately)
 logging.basicConfig(
@@ -106,9 +111,52 @@ class DriveHashProcessor:
         case_handler.setFormatter(case_formatter)
         logger.addHandler(case_handler)
 
+    def _cache_path(self, target_path: str) -> Path:
+        """Return the path for a hash-cache JSON file beside the output dir."""
+        stem = Path(target_path).stem
+        return self.output_path / f".hashcache_{stem}.json"
+
+    def _load_cache(self, target_path: str) -> Optional[DriveHashResult]:
+        """Return cached DriveHashResult if file size+mtime unchanged, else None."""
+        cache = self._cache_path(target_path)
+        if not cache.exists():
+            return None
+        try:
+            with open(cache, 'r') as f:
+                c = json.load(f)
+            st = Path(target_path).stat()
+            if c.get('_size') == st.st_size and abs(c.get('_mtime', 0) - st.st_mtime) < 1:
+                logger.info(f"Hash cache HIT for {target_path}")
+                return DriveHashResult(
+                    target_path=c['target_path'], target_type=c['target_type'],
+                    total_size=c['total_size'], file_count=c['file_count'],
+                    md5_hash=c['md5_hash'], sha1_hash=c['sha1_hash'],
+                    sha256_hash=c['sha256_hash'], timestamp=c['timestamp'],
+                    processing_time=0.0, status='SUCCESS'
+                )
+        except Exception as e:
+            logger.debug(f"Cache load failed: {e}")
+        return None
+
+    def _save_cache(self, target_path: str, result: DriveHashResult):
+        """Persist hash result to cache file."""
+        try:
+            st = Path(target_path).stat()
+            cache = self._cache_path(target_path)
+            import dataclasses
+            d = dataclasses.asdict(result)
+            d['_size'] = st.st_size
+            d['_mtime'] = st.st_mtime
+            with open(cache, 'w') as f:
+                json.dump(d, f)
+        except Exception as e:
+            logger.debug(f"Cache save failed: {e}")
+
     def calculate_drive_hash(self, target_path: str) -> DriveHashResult:
         """
-        Calculate hash for entire drive, directory, or disk image
+        Calculate hash for entire drive, directory, or disk image.
+        Results are cached by file size+mtime — subsequent calls for the same
+        unchanged file return instantly without re-reading.
 
         Args:
             target_path (str): Path to target (file, directory, or drive)
@@ -116,6 +164,12 @@ class DriveHashProcessor:
         Returns:
             DriveHashResult: Hash calculation results
         """
+        # Return cached result if file is unchanged
+        cached = self._load_cache(target_path)
+        if cached:
+            print(f"[+] HashDeep: using cached hashes for {Path(target_path).name} (file unchanged)")
+            return cached
+
         start_time = time.time()
         target = Path(target_path)
 
@@ -139,7 +193,7 @@ class DriveHashProcessor:
                 logger.info(f"Processing disk image: {target.name} ({total_size:,} bytes)")
 
                 with open(target, 'rb') as f:
-                    chunk_size = 1024 * 1024  # 1MB chunks for large images
+                    chunk_size = 16 * 1024 * 1024  # 16 MB — fewer syscalls, faster IO
                     processed = 0
 
                     while chunk := f.read(chunk_size):
@@ -148,7 +202,7 @@ class DriveHashProcessor:
                         sha256_hash.update(chunk)
 
                         processed += len(chunk)
-                        if processed % (100 * 1024 * 1024) == 0:  # Progress every 100MB
+                        if processed % (256 * 1024 * 1024) == 0:  # Progress every 256MB
                             progress = (processed / total_size) * 100
                             logger.info(f"Progress: {progress:.1f}% ({processed:,} / {total_size:,} bytes)")
 
@@ -216,6 +270,8 @@ class DriveHashProcessor:
                 processing_time=processing_time,
                 status="SUCCESS"
             )
+            # Cache for next call
+            self._save_cache(target_path, result)
 
             logger.info(f"Drive-level hash calculation completed:")
             logger.info(f"  Target: {result.target_path}")

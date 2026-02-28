@@ -24,6 +24,13 @@ from autopsy import auto
 from volatility import auto_vol
 from exiftool import exiftool_auto
 
+# Import timeline correlator
+try:
+    from timeline.timeline_correlator import TimelineCorrelator
+    TIMELINE_AVAILABLE = True
+except ImportError:
+    TIMELINE_AVAILABLE = False
+
 # Import bulk-extractor module
 bulk_extractor_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bulk-extractor')
 sys.path.append(bulk_extractor_path)
@@ -455,6 +462,47 @@ def run_workflow(evidence_path, memory_file=None):
 
     # NOTE: Report generation is handled by the orchestrator after this function
     # returns. Do NOT call report_gen.py here to avoid duplicate PDFs/HTMLs.
+
+    # ── Cross-Tool Timeline Correlation ─────────────────────────────────
+    print("\n=== Building Cross-Tool Investigation Timeline ===")
+    if TIMELINE_AVAILABLE:
+        try:
+            officer = os.environ.get('EDITH_OFFICER', 'Unknown')
+            corr = TimelineCorrelator(case_results_dir, f"CASE_{case_id}", officer)
+            corr.build()
+
+            timeline_dir = os.path.join(case_results_dir, "Timeline")
+            os.makedirs(timeline_dir, exist_ok=True)
+            html_path = os.path.join(timeline_dir, "investigation_timeline.html")
+            json_path = os.path.join(timeline_dir, "timeline_events.json")
+            corr.save_html(html_path)
+            corr.save_json(json_path)
+
+            s = corr.summary()
+            print(f"[+] Timeline built: {s['total_events']} events")
+            print(f"    Date range : {s['date_range'][0]}  ->  {s['date_range'][1]}")
+            print(f"    By source  : {s['by_source']}")
+            print(f"    By severity: {s['by_severity']}")
+            hc = s.get('high_critical', [])
+            if hc:
+                print(f"[!] HIGH/CRITICAL findings: {len(hc)}")
+                for ev in hc[:5]:
+                    print(f"    [{ev['severity']}] {ev['timestamp']}  {ev['subject'][:60]}")
+            print(f"[+] Timeline HTML : {html_path}")
+            print(f"[+] Timeline JSON : {json_path}")
+
+            # Auto-open in browser
+            try:
+                import webbrowser
+                webbrowser.open(f"file:///{html_path.replace(chr(92), '/')}")
+                print("[+] Timeline opened in browser.")
+            except Exception:
+                pass
+        except Exception as tl_err:
+            print(f"[-] Timeline generation failed: {tl_err}")
+    else:
+        print("[-] Timeline module not available — skipping.")
+    # ────────────────────────────────────────────────────────────────────
 
     print("\n Full forensic workflow completed successfully!")
     print("   - Baseline hashes created")

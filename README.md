@@ -1,5 +1,149 @@
 # EDITH-Automater
-## **E**vidence → **D**igital **I**nvestigation → **T**echnical → **H**arness
+## **E**vidence **D**igital **I**nvestigation **T**echnical **H**arness
+
+[![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)]()
+[![Python](https://img.shields.io/badge/Python-3.8%2B-green.svg)]()
+
+> One command runs five forensic tools, verifies evidence integrity, correlates findings into a single interactive timeline, and generates court-ready PDF reports.
+
+---
+
+## Quick Start (2 commands)
+
+```powershell
+# 1. Install dependencies (once)
+pip install -r tools\requirements.txt
+
+# 2. Run the full pipeline on an E01 disk image
+.\run_pipeline.bat "C:\path\to\evidence.E01"
+```
+
+When the pipeline finishes, your browser opens automatically to the **Case Dashboard**.
+
+---
+
+## What it does
+
+```
+evidence.E01
+    │
+    ├─► HashDeep    — MD5 + SHA1 + SHA256 hash of the entire image (baseline)
+    ├─► ExifTool    — Reads EWF container headers (case no., examiner, acq. date)
+    ├─► Autopsy     — File system analysis via SleuthKit (fls, fsstat, mmls)
+    ├─► BulkExtractor — Carves emails, URLs, IPs, phones from raw sectors
+    ├─► HashDeep    — Re-hashes image, compares to baseline (PASS / FAIL)
+    │
+    └─► Timeline Correlator
+            ↓
+        case_dashboard.html   ← opens automatically
+        Timeline/investigation_timeline.html
+        Reports pdf/*.pdf     ← Chain of Custody, Evidence Form, Job Form
+```
+
+### Key differentiator — Cross-Tool Timeline
+
+Events from all five tools are merged, de-duplicated, and sorted chronologically into a single HTML timeline with:
+
+- **Filter by tool** (Autopsy / BulkExtractor / ExifTool / HashDeep / Volatility)
+- **Filter by severity** (CRITICAL / HIGH / MEDIUM / LOW / INFO)
+- **Date range picker** — zoom to a specific window
+- **Keyword search** — instant full-text filter across all events
+- **Expand All / Collapse All / Export CSV / Print to PDF**
+
+---
+
+## Integrity & accuracy proof
+
+Every pipeline run produces:
+
+```
+HashDeep_output/verification/integrity_verification.txt
+────────────────────────────────────────────────────────
+MD5    match: PASS
+SHA1   match: PASS
+SHA256 match: PASS
+
+OVERALL: INTEGRITY MAINTAINED
+```
+
+The same three hashes appear in the auto-generated Chain of Custody PDF — no manual transcription, no opportunity for error.
+
+---
+
+## Case Dashboard
+
+`Results/CASE_YYYYMMDD_HHMMSS/case_dashboard.html`
+
+- Large green ✓ **INTEGRITY MAINTAINED** banner (or red ✗ if hashes differ)
+- Per-tool event counts with ACTIVE / SKIPPED / NO DATA badges
+- EWF container metadata (case number, examiner, subject, acquisition date)
+- BulkExtractor artifact breakdown (emails, URLs, phones, base16 hashes)
+- Top findings table (MEDIUM / HIGH / CRITICAL events)
+- One-click links to the timeline and all PDFs
+
+---
+
+## Memory analysis (optional)
+
+```powershell
+.\run_pipeline.bat "evidence\disk.E01" "evidence\memory.vmem"
+```
+
+Pass any `.mem / .vmem / .dmp / .raw` file as the second argument. Without one, Volatility records a clear **SKIPPED** status in the dashboard and timeline rather than silently producing an empty folder.
+
+---
+
+## Project structure
+
+```
+EDITH-Automater/
+├── run_pipeline.bat            ← start here
+├── orchestrator/
+│   └── orchestrator.py         ← main engine
+├── tools/
+│   ├── autopsy/                ← SleuthKit (mmls, fls, fsstat, tsk_recover)
+│   ├── bulk-extractor/         ← email, URL, IP, phone carving
+│   ├── exiftool/bin/           ← ExifTool binary
+│   ├── hashdeep/               ← hash + verify
+│   ├── volatility/             ← memory analysis (optional)
+│   ├── timeline/
+│   │   └── timeline_correlator.py  ← cross-tool event merge
+│   ├── Scripts/
+│   │   ├── script_3.py         ← forensic workflow
+│   │   └── report_gen.py       ← PDF generation
+│   └── requirements.txt
+├── evidence/                   ← place .E01 / .vmem files here
+├── Results/                    ← all case output lands here
+│   └── CASE_YYYYMMDD_HHMMSS/
+│       ├── case_dashboard.html         ← START HERE after pipeline
+│       ├── Timeline/
+│       │   └── investigation_timeline.html
+│       ├── Reports pdf/                ← Chain of Custody, Evidence Form…
+│       ├── HashDeep_output/
+│       │   └── verification/integrity_verification.txt
+│       ├── Autopsy_output/
+│       ├── BulkExtractor_output/
+│       └── ExifTool_output/
+└── reports/Reports html/       ← PDF/HTML templates
+```
+
+---
+
+## System requirements
+
+| | Minimum | Recommended |
+|---|---|---|
+| OS | Windows 10 64-bit | Windows 11 |
+| Python | 3.8+ | 3.11+ |
+| RAM | 8 GB | 16 GB |
+| Disk | 20 GB free | 100 GB SSD |
+
+---
+
+## Legal
+
+For legitimate digital forensics, incident response, and educational use only. Ensure proper authorisation before analysing any evidence. Follow chain-of-custody procedures and local regulations.
+
 
 [![Version](https://img.shields.io/badge/Version-2.0-blue.svg)](https://github.com/adhi982/Edith_t-Automater)
 [![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)]()

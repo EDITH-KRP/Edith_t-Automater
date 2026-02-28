@@ -30,6 +30,9 @@ a = Analysis(
         ('tools/Scripts', 'tools/Scripts'),
         ('tools/ftk_metadata', 'tools/ftk_metadata'),
         ('tools/analysis_reporter', 'tools/analysis_reporter'),
+        # Timeline correlator & AI Analyst
+        ('tools/timeline', 'tools/timeline'),
+        ('tools/ai_analyst', 'tools/ai_analyst'),
         # Configuration files
         ('config.json', '.'),
         ('README.md', '.'),
@@ -38,30 +41,40 @@ a = Analysis(
         ('EyezOn.ico', '.'),
     ],
     hiddenimports=[
+        # Timeline correlator (imported as 'timeline.timeline_correlator')
+        'timeline',
+        'timeline.timeline_correlator',
+        # AI Analyst
+        'ai_analyst',
+        'ai_analyst.ai_analyst',
+        'ollama',
         # Forensic tools
         'autopsy',
         'exiftool',
         'volatility',
         'volatility3',
         # FTK modules
-        'tools.ftk_metadata',
-        'tools.ftk_metadata.ftk_image_analyzer',
-        'tools.ftk_metadata.ftk_integration',
+        'ftk_metadata',
+        'ftk_metadata.ftk_image_analyzer',
+        'ftk_metadata.ftk_integration',
         # Analysis reporter
-        'tools.analysis_reporter',
-        'tools.analysis_reporter.analyze_tool_outputs',
-        'tools.analysis_reporter.generate_analysis_report',
-        'tools.analysis_reporter.analysis_reporter_integration',
+        'analysis_reporter',
+        'analysis_reporter.analyze_tool_outputs',
+        'analysis_reporter.generate_analysis_report',
+        'analysis_reporter.analysis_reporter_integration',
         # Standard library modules we use
         'json', 'pathlib', 'datetime', 'subprocess', 'asyncio',
         're', 'hashlib', 'struct', 'threading', 'shutil',
+        # Third-party packages used in pipeline
+        'colorama',
+        'webbrowser',
         # Optional external libraries (if installed)
         'pyewf', 'pytsk3', 'requests',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludedimports=[],
+    excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
